@@ -8,7 +8,7 @@ import sys
 import tkinter as tk
 from sched import scheduler
 import time
-from tkinter import *                
+from tkinter import *
 from tkinter import font  as tkfont 
 #from PIL import Image, ImageTk
 from datetime import datetime,timedelta

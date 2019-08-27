@@ -10,7 +10,7 @@ from sched import scheduler
 import time
 from tkinter import *                
 from tkinter import font  as tkfont 
-from PIL import Image, ImageTk
+#from PIL import Image, ImageTk
 from datetime import datetime,timedelta
 from threading import Timer
 from _codecs import decode
@@ -43,7 +43,7 @@ class AppMain(tk.Tk):
         Appsetting =  appsettings.get('App', {'xpos':0})
         self.debug = Appsetting.get('Debug',False)
         xpos = Appsetting.get ('xpos',0)
-        fullscreen = Appsetting.get ('fullscreen',1)
+        fullscreen = Appsetting.get ('fullscreen',0)
         self.title_font = tkfont.Font(family='ApexSansMediumT', size=36, weight="bold")
         self.background = 'white'
         root = tk.Tk._root(self)

@@ -6,6 +6,7 @@ import time
 import traceback
 import sys
 import csv
+from collections import OrderedDict 
 from datetime import datetime, timedelta
 from threading import Thread
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QAction, QTableWidget, QTableWidgetItem, QVBoxLayout, QPushButton, QSizePolicy
@@ -64,6 +65,7 @@ class PhidgetMeas(Thread):
             while not qcontrol.empty():
                 item = qcontrol.get()
                 if item[0] == 'Connect':
+                    self.closeall()
                     self.initphidget()
                 if  item[0] == 'GetMeasurement':
                     if not qdata.full():
@@ -72,17 +74,26 @@ class PhidgetMeas(Thread):
                                 qdata.put((i.channelIndex, i.value))
         pass
 
-    def getcalibratedvalue(self, id, value):
-        locval = self.AppSettings.get(id, 0)
-        return value - locval
-   
+
     def storeCalibvalues(self):
         for i in ch:
             cavg = sum(i.CalibValues) / len(i.CalibValues)
             self.AppSettings["CalibVal"][i.CalibValues] = cavg
         WriteSetupFile(self.AppSettings)
         return 
-                
+    def onErrorHandler(self,phiobj, code, description):
+        print("Code: " + str(code))
+        print("Description: " + description)
+        ph = phiobj
+        deviceSerialNumber = ph.getDeviceSerialNumber()
+        port = int(ph.getHubPort())
+        channel = int(ph.getChannel())
+        index = (port << 1) + channel
+        ch[index].isReady = False
+        if not qconnectStatus.full():
+            qconnectStatus.put((index, str('Error:'+description)))
+
+
     def onVoltageRatioChangeHandler(self, phself, sensorValue):
         calibstat = True
         # If you are unsure how to use more than one Phidget channel with this event, we recommend going to
@@ -93,7 +104,6 @@ class PhidgetMeas(Thread):
         port = int(ph.getHubPort())
         channel = int(ph.getChannel())
         index = (port << 1) + channel
-        self.getcalibratedvalue(index, phself.value)
        # print(deviceSerialNumber)
         # print("Sensor "+ str(index)+ "Voltage Ratio: " + str(sensorValue))
         
@@ -107,6 +117,7 @@ class PhidgetMeas(Thread):
         ch[index].isReady = True
         if not qconnectStatus.full():
             qconnectStatus.put((index, 'Connected'))
+            
     def initphidget(self):
         Net.enableServerDiscovery(PhidgetServerType.PHIDGETSERVER_DEVICEREMOTE)
         i = -1
@@ -120,6 +131,7 @@ class PhidgetMeas(Thread):
                     ch[i].setIsRemote(True)
                     ch[i].setOnAttachHandler(self.onAttachHandler)
                     ch[i].setOnVoltageRatioChangeHandler(self.onVoltageRatioChangeHandler)
+                    ch[i].setOnErrorHandler(self.onErrorHandler)
                     ch[i].channelIndex = i
                     ch[i].isReady = False
                     ch[i].CalibValues = []
@@ -129,7 +141,17 @@ class PhidgetMeas(Thread):
                     ch[i].openWaitForAttachment(2000)
                 except:
                     print("Error in no" + str(i))
-
+                    
+    def closeall(self):
+        i = -1
+        for p in range (0, NUM_PORTS):
+            for c in range (0, NUM_CHANNELS):
+                try:
+                    i = i + 1
+                    ch[i].close()
+                except:
+                    print("Error in no" + str(i))
+        time.sleep(1)
 
 class App(QWidget):
 
@@ -141,8 +163,14 @@ class App(QWidget):
         self.width = 1024
         self.height = 960
         self.gplot = None
-        # self.readCalData()
+        self.FilePath = 'C:\\ProgramData\\sefco\\WrapView\\'
+        self.calfilename = self.FilePath + 'caldata.csv'
+        self.caldata = []
+        self.readCalData()
         self.initUI()
+        self.showmeasdata = False
+        self.runningmeasure = False
+        self.timerrun = False
         self.timersetup()
 
     def say_hello(self):                                                                                     
@@ -158,6 +186,8 @@ class App(QWidget):
         self.layout = QVBoxLayout()
         self.layout.addWidget(self.connectbutton)
         self.layout.addWidget(self.updatebutton)
+        self.layout.addWidget(self.MakeMeasurebutton)
+        
         
         self.layout.addWidget(self.tableWidget) 
 
@@ -173,42 +203,95 @@ class App(QWidget):
         self.connectbutton.setToolTip('Connect the phidgets')
         self.connectbutton.move(100, 70)
         self.connectbutton.clicked.connect(self.connect_on_click)
-        self.updatebutton = QPushButton('Update', self)
+        self.updatebutton = QPushButton('Continueous Measure', self)
         self.updatebutton.setToolTip('Update the plot')
         self.updatebutton.move(100, 70)
         self.updatebutton.clicked.connect(self.update_on_click)
+        self.MakeMeasurebutton = QPushButton('AddMeasurement', self)
+        self.MakeMeasurebutton.setToolTip('AddMeasurement')
+        self.MakeMeasurebutton.move(100, 70)
+        self.MakeMeasurebutton.clicked.connect(self.AddMeasurement_click)
+        
+        
 
     def createTable(self):
         # Create table
         self.tableWidget = QTableWidget()
         self.tableWidget.verticalHeader().setVisible(False)
-        self.tableWidget.horizontalHeader().setVisible(False)
+        self.tableWidget.horizontalHeader().setVisible(True)
         self.tableWidget.setRowCount(NUM_MEAS_IDS)
-        self.tableWidget.setColumnCount(3)
+        self.tableWidget.setColumnCount(5)
+        self.tableWidget.setHorizontalHeaderItem(0, QTableWidgetItem("Load cell Number"))
+        self.tableWidget.setHorizontalHeaderItem(1, QTableWidgetItem("Connect Status"))
+        self.tableWidget.setHorizontalHeaderItem(2, QTableWidgetItem("Cal_Multiplier"))
+        self.tableWidget.setHorizontalHeaderItem(3, QTableWidgetItem("Cal_Adder"))
+        self.tableWidget.setHorizontalHeaderItem(4, QTableWidgetItem("Measured Load"))        
         for mId in range (0, NUM_MEAS_IDS):
             self.tableWidget.setItem(mId, 0, QTableWidgetItem("Cell_"+ str(mId)))
             self.tableWidget.setItem(mId, 1, QTableWidgetItem("Disconnected"))
-            self.tableWidget.setItem(mId, 2, QTableWidgetItem("Value"))
+            self.tableWidget.setItem(mId, 2, QTableWidgetItem(self.caldata[mId]['Multiplier']))
+            self.tableWidget.setItem(mId, 3, QTableWidgetItem(self.caldata[mId]['Addend']))
+            self.tableWidget.setItem(mId, 4, QTableWidgetItem("Value"))
         self.tableWidget.move(0, 0)
 
     @pyqtSlot()
     def update_on_click(self):
-        if not qcontrol.full():
-            qcontrol.put(("GetMeasurement", True))
-        self.update2()
+        if not self.runningmeasure:
+            self.updatebutton.setStyleSheet("background-color:green;")
+            self.showmeasdata = True
+            self.startfreeruntimer()
+        else:
+            self.updatebutton.setStyleSheet("")
+            self.showmeasdata = False
+            self.stopfreeruntimer()
+
+        self.runningmeasure = not self.runningmeasure
+
+        self.updatemeasuemntdata()
+        
+    def AddMeasurement_click(self):
+        self.updatemeasuemntdata(clearplot=False)
+        self.writecsvdatafile(vals)
+        
         
     def connect_on_click(self):
         if not qcontrol.full():
             qcontrol.put(("Connect", True))
         self.update2()
+        self.startfreeruntimer()
         
+    def startfreeruntimer(self):
+        self.timerrun = True 
+        self.timer.start()
+
+    def stopfreeruntimer(self):
+        self.timerrun = False
+        self.timer.stop()
 
 
     def timersetup(self):
         self.timer = QTimer()
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.update2)
-        self.timer.start()
+        if self.timerrun:
+            self.timer.start()
+            
+    def updatemeasuemntdata(self, clearplot=True):
+        if not qcontrol.full():
+            qcontrol.put(("GetMeasurement", True))
+            time.sleep(0.2)
+        while not qdata.empty():
+            item = qdata.get()
+            idn = int(item[0])
+            measvalue = float(item[1])
+            value = self.GetCalibratedValue(idn, measvalue)
+            strval = "{:.5f}".format(value)
+            self.tableWidget.setItem(idn, 4, QTableWidgetItem(strval))
+            vals[idn] = value
+        if self.gplot is not None:
+            if clearplot:
+                self.gplot.clearplots()
+            self.gplot.pltupdate()
 
     def update2(self):
         while not qconnectStatus.empty():
@@ -216,19 +299,79 @@ class App(QWidget):
             if item[1] == 'Connecting':
                 self.tableWidget.setItem(int(item[0]), 1, QTableWidgetItem('Connecting'))
                 self.tableWidget.item(int(item[0]),1).setBackground(QtGui.QColor(Qt.yellow)) 
-            if item[1] == 'Connected':
+            elif item[1] == 'Connected':
                 self.tableWidget.setItem(int(item[0]), 1, QTableWidgetItem('Connected'))
                 self.tableWidget.item(int(item[0]),1).setBackground(QtGui.QColor(Qt.green)) 
-        while not qdata.empty():
-            item = qdata.get()
-            id = int(item[0])
-            value = float(item[1])
-            self.tableWidget.setItem(id, 2, QTableWidgetItem(str(value)))
-            vals[id] = value
-        if self.gplot is not None:
-            self.gplot.pltupdate()
+            elif 'Error:' in item[1]:
+                self.tableWidget.setItem(int(item[0]), 1, QTableWidgetItem('Error'))
+                self.tableWidget.item(int(item[0]),1).setBackground(QtGui.QColor(Qt.red)) 
+        if self.showmeasdata:
+            self.updatemeasuemntdata()
             # print(item)
+    
+    def readCalData(self):
+        if not os.path.exists(os.path.dirname(self.calfilename)):
+            try:
+                os.makedirs(os.path.dirname(self.calfilename))
+            except Exception as e: 
+                print('StrainView make dirs read error: ' + self.calfilename, e)
+        if not os.path.exists(self.calfilename):
+            try:
+                open(self.calfilename, mode='w+')
+            except Exception as e: 
+                print('StrainView make caldatafile error: ' + self.calfilename, e)
 
+        for mId in range(0, NUM_MEAS_IDS):
+            self.caldata.append(OrderedDict([('LoadCell', '0'), ('Multiplier', '1'), ('Addend', '0')]))
+    
+        with open(self.calfilename, mode='r') as csv_file:
+            self.csvdata = csv.DictReader(csv_file)
+            line_count = 0
+            try: 
+                for row in self.csvdata:
+                    id = int(row['LoadCell'])
+                    self.caldata[id] = row
+                    print(row)
+            except Exception as e:
+                print('Parsing caldata file error ', e)
+        csv_file.close()
+
+    def writecsvdatafile(self, vals):
+        timestr = time.strftime("%Y%m%d-%H%M%S")
+        filename = "Data_"+timestr+".csv"
+        with open(self.FilePath + filename, mode='w+', newline='') as csv_file:
+            fields = ['LoadCell', 'MeasuredValue']
+            writer = csv.DictWriter(csv_file, fieldnames=fields)
+            writer.writeheader()
+            for idx, data in enumerate(vals):
+                row = OrderedDict([('LoadCell', idx), ('MeasuredValue', data)])
+                writer.writerow(row)
+   
+        print("writing completed")
+        csv_file.close()
+    def GetCalibratedValue(self, id, value):
+        try:
+            calMval = float(self.caldata[id]['Multiplier'])
+            calAval = float(self.caldata[id]['Addend'])
+        except Exception as e:
+                print('caldata calulate error ', e) 
+        try:
+            calval = (value*calMval)+calAval
+        except Exception as e:
+            print('Calculating caldata error ', e)   
+        return calval
+   
+    def writecaldata(self):
+        data = [{'LoadCell' : 1, 'Multiplier': 1, 'Addend': 0}]
+        with open(self.calfilename, 'w') as csv_file:
+            fields = ['LoadCell', 'Multiplier', 'Addend']
+            writer = csv.DictWriter(csv_file, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(data)
+        print("writing completed")
+        csv_file.close()
+
+                 
 
 class PlotCanvas(FigureCanvas):
 
@@ -249,20 +392,35 @@ class PlotCanvas(FigureCanvas):
 
     def pltupdate(self):
         self.ax.relim()
-        self.ax.autoscale_view()
-        x = range(len(vals))
-        y = vals
-        self.ax.clear()
-        self.ax.barh(x, y, orientation="horizontal")  
+        self.ax.autoscale_view(True)
+        self.ax.set_xlim(0,1)
+        y = range(len(vals))
+        x = vals
+        #self.ax.clear()
+        self.line = self.ax.plot(x, y, '.-')
+        self.ax.set_title('Load plot')
+        self.ax.set_ylabel('Cells')
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
-    def plot(self):
+    def barplot(self):
         x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         self.ax = self.figure.add_subplot(111)
         self.line = self.ax.barh(x, x, orientation="horizontal")   
         self.ax.set_title('Load plot')
-        self.ax.set_ylabel('Force')
+        self.ax.set_ylabel('Cells')
+    
+    def plot(self):
+        y = range(12)
+        x = range(12)
+        self.ax = self.figure.add_subplot(111)
+        #self.ax.plot(x, y, 'o-')  
+        self.ax.set_title('Load plot')
+        self.ax.set_ylabel('Cells')
+        self.ax.set_xlabel("Force") 
+    
+    def clearplots(self):
+        self.ax.clear()
         
         # self.draw()
 
@@ -300,36 +458,10 @@ def ReadSetupFile():
     return data
 
 
-def writecaldata():
-    
-    data = [{'LoadCell' : 1, 'Multiplier': 1, 'Addend': 0}]
-    with open('peak.csv', 'w') as csvFile:
-        fields = ['LoadCell', 'Multiplier', 'Addend']
-        writer = csv.DictWriter(csvFile, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(data)
-    print("writing completed")
-    csvFile.close()
+
 
     
-def readCalData():
-    FilePath = 'C:\\ProgramData\\sefco\\WrapView\\'
-    calfilename = FilePath + 'caldata.csv'
-    if not os.path.exists(os.path.dirname(calfilename)):
-        try:
-            os.makedirs(os.path.dirname(calfilename))
-        except Exception as e: 
-            print('StrainView make dirs read error: ' + calfilename, e)
-    with open('caldata.csv', mode='r') as csv_file:
-        csv_reader = csv.DictReader(csv_file)
-        line_count = 0
-        for row in csv_reader:
-            if line_count == 0:
-                print(f'Column names are {", ".join(row)}')
-                line_count += 1
-            print(f'\t{row["name"]} works in the {row["department"]} department, and was born in {row["birthday month"]}.')
-            line_count += 1
-        print(f'Processed {line_count} lines.') 
+
 
 
 if __name__ == '__main__':
@@ -342,7 +474,7 @@ if __name__ == '__main__':
     appsettings = ReadSetupFile()
     logging.info("Reading CalibrationFile")
     appsettings = ReadSetupFile()
-    writecaldata()
+    # writecaldata()
     # readCalData()
     x = datetime.today()
     y = x.replace(day=x.day, hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)

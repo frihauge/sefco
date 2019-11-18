@@ -1,17 +1,17 @@
 import logging
-import unicodedata
-import json
-import os, io
-import time
-import traceback
-import sys
-import csv
-from collections import OrderedDict 
-from datetime import datetime, timedelta
-from threading import Thread
-from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QAction, QTableWidget, QTableWidgetItem, QVBoxLayout, QPushButton, QSizePolicy
 from PyQt5 import QtGui
 from PyQt5.QtCore import *
+# import unicodedata
+import json
+import os
+import io
+import time
+import sys
+import csv
+from collections import OrderedDict
+from datetime import datetime, timedelta
+from threading import Thread
+from PyQt5.QtWidgets import QWidget, QMainWindow, QApplication, QAction, QTableWidget, QTableWidgetItem, QVBoxLayout, QPushButton, QSizePolicy
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 import matplotlib.pyplot as plt
@@ -24,7 +24,8 @@ from Phidget22.Phidget import *
 from Phidget22.Net import *
 from multiprocessing import Process, Queue
 from numpy.distutils.fcompiler import none
-
+if hasattr(sys, 'frozen'):
+    os.environ['PATH'] = sys._MEIPASS + ";" + os.environ['PATH']
 NUM_CHANNELS = 2
 NUM_PORTS = 6
 NUM_MEAS_IDS = NUM_CHANNELS * NUM_PORTS

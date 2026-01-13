@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>C-Measure</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div>
+            <div class="brand-title" id="brand-title">C-Measure</div>
+            <div class="brand-sub">Stretch film Measure system</div>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item is-active" data-view="home">
+            <span class="nav-dot"></span>
+            <span>Home</span>
+          </button>
+          <button class="nav-item" data-view="measurements">
+            <span class="nav-dot"></span>
+            <span>Measurements</span>
+          </button>
+          <button class="nav-item" data-view="reports">
+            <span class="nav-dot"></span>
+            <span>Reports</span>
+          </button>
+          <button class="nav-item is-hidden" data-view="calibration" id="calibration-nav">
+            <span class="nav-dot"></span>
+            <span>Calibration</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <span class="nav-dot"></span>
+            <span>Settings</span>
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <div class="status-pill" id="sidebar-connection">
+            <span class="status-dot is-warning"></span>
+            <span>Disconnected</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">C-Measure Dashboard</div>
+            <h1 id="page-title">Home</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="btn ghost" id="connect-btn">Connect</button>
+            <button class="btn" id="measure-btn">Continuous Measure</button>
+            <button class="btn" id="add-measurement-btn">Add Measurement</button>
+          </div>
+        </header>
+
+        <section class="view is-active" id="view-home">
+          <div class="grid-cards">
+            <div class="card">
+              <div class="card-title">Connected Sensors</div>
+              <div class="card-metric" id="home-connected">0 / 12</div>
+              <div class="card-foot">Live status from the backend</div>
+            </div>
+            <div class="card">
+              <div class="card-title">Last Test</div>
+              <div class="card-metric" id="home-last-test">None</div>
+              <div class="card-foot">Saved measurement file</div>
+            </div>
+          <div class="card">
+            <div class="card-title">Data Folder</div>
+            <div class="card-metric small" id="home-data-dir">backend/data</div>
+            <div class="card-foot">Change in Settings</div>
+          </div>
+          <div class="card">
+            <div class="card-title">System Pairing</div>
+            <div class="card-metric small" id="home-system-serial">System: -</div>
+            <div class="card-foot" id="home-paired-serial">Paired: -</div>
+            <div class="card-foot" id="home-calibration-time">Last calibration: -</div>
+          </div>
+        </div>
+
+          <div class="card wide">
+            <div class="card-title">Devices</div>
+            <div class="device-list" id="device-status-list"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-measurements">
+          <div class="card">
+            <div class="card-title">Load Data</div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Sensor ID</th>
+                  <th>Connection</th>
+                  <th>Measure Load (N)</th>
+                </tr>
+              </thead>
+              <tbody id="measurement-table-body"></tbody>
+            </table>
+            <div class="card-actions">
+              <button class="btn ghost" id="zero-btn">Zero Set</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Load Plot</div>
+            <div class="plot-wrap">
+              <svg id="load-plot" viewBox="0 0 620 240" aria-label="Load plot"></svg>
+              <div class="plot-legend">
+                <span class="legend-dot measure"></span>
+                <span>Measure Load</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-reports">
+          <div class="card">
+            <div class="card-title">Compare Two Tests</div>
+            <div class="report-controls">
+              <div>
+                <label class="field-label">Test 1 (file)</label>
+                <input class="field-input" type="file" id="report-file-a" accept=".csv" />
+              </div>
+              <div>
+                <label class="field-label">Test 2 (file)</label>
+                <input class="field-input" type="file" id="report-file-b" accept=".csv" />
+              </div>
+              <div>
+                <label class="field-label">Or select saved tests</label>
+                <div class="inline-fields">
+                  <select class="field-input" id="report-select-a"></select>
+                  <select class="field-input" id="report-select-b"></select>
+                </div>
+              </div>
+              <button class="btn" id="compare-btn">Compare</button>
+              <button class="btn ghost" id="pdf-btn">Generate PDF</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Comparison Plot</div>
+            <div class="report-plot-grid">
+              <div class="status-dots" id="report-status-dots"></div>
+              <div class="plot-wrap">
+                <svg id="report-plot" viewBox="0 0 620 240" aria-label="Comparison plot"></svg>
+                <div class="plot-legend">
+                  <span class="legend-dot test-one"></span>
+                  <span>Test 1</span>
+                  <span class="legend-dot test-two"></span>
+                  <span>Test 2</span>
+                </div>
+              </div>
+            </div>
+            <div class="note">Where the red and blue cross, the overlap becomes purple.</div>
+          </div>
+        </section>
+
+        <section class="view" id="view-calibration">
+          <div class="card">
+            <div class="card-title">Calibration Table</div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Load Cell</th>
+                  <th>Multiplier</th>
+                  <th>Addend</th>
+                </tr>
+              </thead>
+              <tbody id="calibration-table-body"></tbody>
+            </table>
+            <div class="card-actions">
+              <button class="btn" id="save-calibration-btn">Save Calibration</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="card">
+            <div class="card-title">Settings</div>
+            <div class="settings-grid">
+              <label>
+                <span class="field-label">Data directory</span>
+                <input class="field-input" id="settings-data-dir" />
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="settings-simulate" />
+                <span class="toggle-ui"></span>
+                <span class="toggle-label">Simulation mode</span>
+              </label>
+              <button class="btn" id="save-settings-btn">Save Settings</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">System</div>
+            <div class="system-list" id="system-info"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>

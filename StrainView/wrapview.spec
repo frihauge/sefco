@@ -4,7 +4,7 @@ block_cipher = None
 
 
 a = Analysis(['wrapview.py'],
-             pathex=['c:\\workspace\\project\\sefco\\SW\\sefco\\StrainView'],
+             pathex=['C:\\workspace\\project\\sefco\\SW\\sefco\\StrainView'],
              binaries=[],
              datas=[],
              hiddenimports=[],

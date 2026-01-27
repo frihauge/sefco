@@ -122,6 +122,26 @@ ipcMain.handle('generate-report-pdf', async (event) => {
   return { canceled: false, filePath };
 });
 
+ipcMain.handle('open-report-file', async (event, defaultPath) => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Select report file',
+    defaultPath: defaultPath || app.getPath('documents'),
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths || filePaths.length === 0) {
+    return null;
+  }
+  return filePaths[0];
+});
+
+ipcMain.handle('read-file', async (event, filePath) => {
+  if (!filePath) {
+    return '';
+  }
+  return fs.readFile(filePath, 'utf-8');
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();

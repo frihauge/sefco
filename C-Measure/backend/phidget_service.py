@@ -153,10 +153,16 @@ class PhidgetService:
         if self._simulate:
             self._simulate_values()
         with self.lock:
-            adjusted = [v - self.zero_offsets[i] for i, v in enumerate(self.raw_values)]
-            calibrated = [self._apply_calibration(i, v) for i, v in enumerate(adjusted)]
-            self.values = calibrated
-            return calibrated
+            raw_snapshot = list(self.raw_values)
+            tare_offsets = list(self.zero_offsets)
+        calibrated = self._apply_calibration_all(raw_snapshot)
+        final = []
+        for idx, value in enumerate(calibrated):
+            tare = tare_offsets[idx] if idx < len(tare_offsets) else 0.0
+            final.append(value - tare)
+        with self.lock:
+            self.values = final
+        return final
 
     def get_raw_values(self):
         if self._simulate:
@@ -227,7 +233,11 @@ class PhidgetService:
         return self.storage.write_measurement(values, name=name)
 
     def zero_set(self):
-        offsets = self.average_raw_all(samples=10, delay=1.0)
+        if self._simulate:
+            self._simulate_values()
+        with self.lock:
+            raw_snapshot = list(self.raw_values)
+        offsets = self._apply_calibration_all(raw_snapshot)
         with self.lock:
             self.zero_offsets = list(offsets)
 
@@ -254,6 +264,12 @@ class PhidgetService:
             gain = 1
             offset = 0
         return (value - offset) * gain
+
+    def _apply_calibration_all(self, raw_values):
+        calibrated = []
+        for idx, value in enumerate(raw_values):
+            calibrated.append(self._apply_calibration(idx, value))
+        return calibrated
 
     def _probe_bridge(self):
         host = self._remote_host

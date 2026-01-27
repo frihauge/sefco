@@ -60,9 +60,17 @@
             <h1 id="page-title">Home</h1>
           </div>
           <div class="topbar-actions">
-            <button class="btn ghost" id="connect-btn">Connect</button>
-            <button class="btn" id="measure-btn">Continuous Measure</button>
-            <button class="btn" id="add-measurement-btn">Add Measurement</button>
+            <label class="toggle" id="measure-toggle-wrap">
+              <input type="checkbox" id="measure-toggle" />
+              <span class="toggle-ui"></span>
+              <span class="toggle-label" id="measure-toggle-label">Measure OFF</span>
+            </label>
+            <div class="topbar-field is-hidden" id="measurement-name-wrap">
+              <label class="field-label" for="measurement-name">Measurement name</label>
+              <input class="field-input" id="measurement-name" placeholder="e.g. Test 1" />
+            </div>
+            <button class="btn" id="add-measurement-btn">Store Measurement</button>
+            <button class="btn ghost" id="clear-frozen-btn">Clear</button>
           </div>
         </header>
 
@@ -75,7 +83,7 @@
             </div>
             <div class="card">
               <div class="card-title">Last Test</div>
-              <div class="card-metric" id="home-last-test">None</div>
+              <div class="card-metric small" id="home-last-test">None</div>
               <div class="card-foot">Saved measurement file</div>
             </div>
           <div class="card">
@@ -84,17 +92,24 @@
             <div class="card-foot">Change in Settings</div>
           </div>
           <div class="card">
-            <div class="card-title">Hub Connection</div>
+            <div class="card-title">C-Measure Connection</div>
             <div class="hub-status" id="home-bridge-status">
               <span class="status-dot is-warning"></span>
               <span>Checking...</span>
             </div>
-            <div class="card-foot" id="home-bridge-detail">Host: -</div>
             <button class="btn ghost is-hidden" id="hub-connect-btn">Connect Device</button>
             <div class="hub-help is-hidden" id="hub-help">
               <div class="card-foot">1) Connect to the device WiFi.</div>
-              <div class="card-foot">2) Open http://192.168.100.1</div>
-              <div class="card-foot">3) Join your customer WiFi.</div>
+            </div>
+            <div class="hub-wifi is-hidden" id="hub-wifi">
+              <label class="field-label">WiFi network</label>
+              <select class="field-input" id="hub-wifi-list"></select>
+              <label class="field-label">WiFi password (optional)</label>
+              <input class="field-input" id="hub-wifi-password" type="password" placeholder="Password" />
+              <div class="hub-wifi-actions">
+                <button class="btn ghost compact" id="hub-wifi-refresh">Refresh</button>
+                <button class="btn compact" id="hub-wifi-connect">Connect</button>
+              </div>
             </div>
           </div>
           <div class="card">
@@ -114,6 +129,9 @@
                 <span class="toggle-label" id="raw-toggle-label">Raw OFF</span>
               </label>
             </div>
+            <div class="device-actions">
+              <button class="btn ghost" id="connect-btn">Connect</button>
+            </div>
             <div class="device-list" id="device-status-list"></div>
           </div>
         </section>
@@ -125,10 +143,6 @@
           </div>
           <div class="card" id="measurements-table-card">
             <div class="card-title">Load Data</div>
-            <div class="measurement-name">
-              <label class="field-label" for="measurement-name">Measurement name</label>
-              <input class="field-input" id="measurement-name" placeholder="e.g. Test 1" />
-            </div>
             <table class="data-table">
               <thead>
                 <tr>
@@ -150,37 +164,50 @@
               <svg id="load-plot" viewBox="0 0 620 240" aria-label="Load plot"></svg>
               <div class="plot-legend">
                 <span class="legend-dot measure"></span>
-                <span>Measure Load</span>
+                <span>Live</span>
+                <span class="legend-dot saved"></span>
+                <span>Saved</span>
               </div>
             </div>
           </div>
         </section>
 
         <section class="view" id="view-reports">
+          <div class="view-toggle" id="reports-toggle">
+            <button class="toggle-btn is-active" data-view="plot">Plot</button>
+            <button class="toggle-btn" data-view="table">Table</button>
+          </div>
           <div class="card">
             <div class="card-title">Compare Two Tests</div>
             <div class="report-controls">
               <div>
                 <label class="field-label">Test 1 (file)</label>
-                <input class="field-input" type="file" id="report-file-a" accept=".csv" />
+                <input class="field-input is-hidden" type="file" id="report-file-a" accept=".csv" />
+                <div class="file-picker" id="report-file-a-picker">
+                  <input class="field-input" id="report-file-a-name" placeholder="No file selected" readonly />
+                  <button class="btn ghost compact" id="report-browse-a">Choose file</button>
+                </div>
               </div>
               <div>
                 <label class="field-label">Test 2 (file)</label>
-                <input class="field-input" type="file" id="report-file-b" accept=".csv" />
+                <input class="field-input is-hidden" type="file" id="report-file-b" accept=".csv" />
+                <div class="file-picker" id="report-file-b-picker">
+                  <input class="field-input" id="report-file-b-name" placeholder="No file selected" readonly />
+                  <button class="btn ghost compact" id="report-browse-b">Choose file</button>
+                </div>
               </div>
               <div>
-                <label class="field-label">Or select saved tests</label>
+                <label class="field-label">Or select saved tests to compare</label>
                 <div class="inline-fields">
                   <select class="field-input" id="report-select-a"></select>
                   <select class="field-input" id="report-select-b"></select>
                 </div>
               </div>
-              <button class="btn" id="compare-btn">Compare</button>
               <button class="btn ghost" id="pdf-btn">Generate PDF</button>
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" id="report-plot-card">
             <div class="card-title">Comparison Plot</div>
             <div class="report-plot-grid">
               <div class="status-dots" id="report-status-dots"></div>
@@ -195,6 +222,19 @@
               </div>
             </div>
             <div class="note">Where the red and blue cross, the overlap becomes purple.</div>
+          </div>
+          <div class="card is-hidden" id="report-table-card">
+            <div class="card-title">Comparison Table</div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Sensor ID</th>
+                  <th id="report-col-a">Test 1</th>
+                  <th id="report-col-b">Test 2</th>
+                </tr>
+              </thead>
+              <tbody id="report-table-body"></tbody>
+            </table>
           </div>
         </section>
 

@@ -1,11 +1,16 @@
 import json
 import mimetypes
 import os
+import re
+import subprocess
+import tempfile
+import threading
 import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from xml.sax.saxutils import escape as xml_escape
 
 from phidget_service import PhidgetService
 from settings import load_settings, save_settings
@@ -85,6 +90,11 @@ class ApiHandler(BaseHTTPRequestHandler):
             info = dict(self.server.system_info)
             info["wifiSsid"] = settings.get("wifiSsid")
             return self._send_json(info)
+        if route == "/api/wifi/networks":
+            items, code, output = list_wifi_networks()
+            if code != 0:
+                return self._send_json({"error": "Failed to list wifi", "detail": output}, status=500)
+            return self._send_json({"networks": items})
         self.send_error(404)
 
     def _handle_api_post(self):
@@ -227,6 +237,18 @@ class ApiHandler(BaseHTTPRequestHandler):
             info = dict(self.server.system_info)
             info["wifiSsid"] = settings.get("wifiSsid")
             return self._send_json(info)
+        if route == "/api/wifi/connect":
+            payload = self._read_json()
+            ssid = payload.get("ssid")
+            password = payload.get("password") if isinstance(payload, dict) else None
+            ok, output = connect_wifi(ssid, password=password)
+            if not ok:
+                return self._send_json({"error": "Failed to connect", "detail": output}, status=400)
+            settings = load_settings()
+            settings["wifiSsid"] = str(ssid)
+            settings["wifiPassword"] = str(password or "")
+            save_settings(settings)
+            return self._send_json({"status": "ok"})
         self.send_error(404)
 
     def _serve_static(self):
@@ -302,6 +324,129 @@ def ensure_system_info():
     }
 
 
+def _run_netsh(args):
+    result = subprocess.run(
+        ["netsh"] + args,
+        capture_output=True,
+        text=True,
+        shell=False,
+    )
+    output = (result.stdout or "") + (result.stderr or "")
+    return result.returncode, output
+
+
+def list_wifi_networks():
+    code, output = _run_netsh(["wlan", "show", "networks", "mode=bssid"])
+    networks = {}
+    current = None
+    for line in output.splitlines():
+        ssid_match = re.match(r"\s*SSID\s+\d+\s*:\s*(.*)", line, re.IGNORECASE)
+        if ssid_match:
+            name = ssid_match.group(1).strip()
+            if not name:
+                current = None
+                continue
+            current = name
+            if name not in networks:
+                networks[name] = {"ssid": name, "signal": None}
+            continue
+        if current:
+            signal_match = re.match(r"\s*Signal\s*:\s*(\d+)%", line, re.IGNORECASE)
+            if signal_match:
+                value = int(signal_match.group(1))
+                if networks[current]["signal"] is None or value > networks[current]["signal"]:
+                    networks[current]["signal"] = value
+    items = list(networks.values())
+    items.sort(key=lambda item: item["signal"] or 0, reverse=True)
+    return items, code, output
+
+
+def _wifi_profile_xml(ssid, password=None):
+    name = xml_escape(ssid)
+    if password:
+        key = xml_escape(password)
+        return f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+  <name>{name}</name>
+  <SSIDConfig>
+    <SSID>
+      <name>{name}</name>
+    </SSID>
+  </SSIDConfig>
+  <connectionType>ESS</connectionType>
+  <connectionMode>auto</connectionMode>
+  <MSM>
+    <security>
+      <authEncryption>
+        <authentication>WPA2PSK</authentication>
+        <encryption>AES</encryption>
+        <useOneX>false</useOneX>
+      </authEncryption>
+      <sharedKey>
+        <keyType>passPhrase</keyType>
+        <protected>false</protected>
+        <keyMaterial>{key}</keyMaterial>
+      </sharedKey>
+    </security>
+  </MSM>
+</WLANProfile>
+"""
+    return f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+  <name>{name}</name>
+  <SSIDConfig>
+    <SSID>
+      <name>{name}</name>
+    </SSID>
+  </SSIDConfig>
+  <connectionType>ESS</connectionType>
+  <connectionMode>auto</connectionMode>
+  <MSM>
+    <security>
+      <authEncryption>
+        <authentication>open</authentication>
+        <encryption>none</encryption>
+        <useOneX>false</useOneX>
+      </authEncryption>
+    </security>
+  </MSM>
+</WLANProfile>
+"""
+
+
+def connect_wifi(ssid, password=None):
+    if not ssid:
+        return False, "SSID is required"
+    code, output = _run_netsh(["wlan", "connect", f"name={ssid}", f"ssid={ssid}"])
+    if code == 0:
+        return True, output
+    profile_xml = _wifi_profile_xml(ssid, password=password or None)
+    with tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False) as handle:
+        handle.write(profile_xml)
+        profile_path = handle.name
+    try:
+        _run_netsh(["wlan", "add", "profile", f"filename={profile_path}", "user=all"])
+    finally:
+        try:
+            os.remove(profile_path)
+        except OSError:
+            pass
+    code, output = _run_netsh(["wlan", "connect", f"name={ssid}", f"ssid={ssid}"])
+    return code == 0, output
+
+
+def auto_connect_wifi(settings):
+    ssid = settings.get("wifiSsid")
+    if not ssid:
+        return
+    password = settings.get("wifiPassword")
+    ok, output = connect_wifi(ssid, password=password)
+    if ok:
+        print(f"[WiFi] Auto-connected to {ssid}")
+    else:
+        print(f"[WiFi] Auto-connect failed for {ssid}: {output}")
+
+
 def main():
     settings = load_settings()
     data_dir = os.getenv("CMEASURE_DATA_DIR") or settings.get("dataDir") or default_data_dir()
@@ -321,6 +466,7 @@ def main():
 
     server = CMeasureServer(("127.0.0.1", port), ApiHandler, storage, service, ui_dir)
     server.system_info = ensure_system_info()
+    threading.Thread(target=auto_connect_wifi, args=(settings,), daemon=True).start()
     print(f"C-Measure backend running on http://127.0.0.1:{port}")
     try:
         server.serve_forever()

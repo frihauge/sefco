@@ -13,6 +13,24 @@ const state = {
   calibrationOffsetsSet: false,
   calibrationGainStatus: [],
   measurementView: 'table',
+  reportView: 'plot',
+  dataDir: '',
+  frozenMeasurements: null,
+  reportValuesA: null,
+  reportValuesB: null,
+  reportLabelA: 'Test 1',
+  reportLabelB: 'Test 2',
+  systemInfoCache: {
+    systemSerial: '-',
+    pairedSerial: '-',
+    lastCalibrationAt: '-',
+  },
+  hubWifiOpen: false,
+  lastBridge: null,
+  reportLocalAContent: null,
+  reportLocalBContent: null,
+  reportLocalAName: '',
+  reportLocalBName: '',
 };
 
 const elements = {
@@ -22,8 +40,12 @@ const elements = {
   connectBtn: document.getElementById('connect-btn'),
   rawToggleInput: document.getElementById('raw-toggle'),
   rawToggleLabel: document.getElementById('raw-toggle-label'),
-  measureBtn: document.getElementById('measure-btn'),
+  measureToggleWrap: document.getElementById('measure-toggle-wrap'),
+  measureToggleInput: document.getElementById('measure-toggle'),
+  measureToggleLabel: document.getElementById('measure-toggle-label'),
+  measurementNameWrap: document.getElementById('measurement-name-wrap'),
   addMeasurementBtn: document.getElementById('add-measurement-btn'),
+  clearFrozenBtn: document.getElementById('clear-frozen-btn'),
   zeroBtn: document.getElementById('zero-btn'),
   sidebarConnection: document.getElementById('sidebar-connection'),
   homeConnected: document.getElementById('home-connected'),
@@ -33,6 +55,11 @@ const elements = {
   homeBridgeDetail: document.getElementById('home-bridge-detail'),
   hubConnectBtn: document.getElementById('hub-connect-btn'),
   hubHelp: document.getElementById('hub-help'),
+  hubWifiPanel: document.getElementById('hub-wifi'),
+  hubWifiList: document.getElementById('hub-wifi-list'),
+  hubWifiPassword: document.getElementById('hub-wifi-password'),
+  hubWifiRefresh: document.getElementById('hub-wifi-refresh'),
+  hubWifiConnect: document.getElementById('hub-wifi-connect'),
   homeSystemSerial: document.getElementById('home-system-serial'),
   homePairedSerial: document.getElementById('home-paired-serial'),
   homeCalibrationTime: document.getElementById('home-calibration-time'),
@@ -43,8 +70,20 @@ const elements = {
   measurementsTableCard: document.getElementById('measurements-table-card'),
   measurementsPlotCard: document.getElementById('measurements-plot-card'),
   measurementNameInput: document.getElementById('measurement-name'),
+  reportsToggle: document.getElementById('reports-toggle'),
+  reportPlotCard: document.getElementById('report-plot-card'),
+  reportTableCard: document.getElementById('report-table-card'),
+  reportTableBody: document.getElementById('report-table-body'),
+  reportColA: document.getElementById('report-col-a'),
+  reportColB: document.getElementById('report-col-b'),
   reportFileA: document.getElementById('report-file-a'),
   reportFileB: document.getElementById('report-file-b'),
+  reportFileAPicker: document.getElementById('report-file-a-picker'),
+  reportFileBPicker: document.getElementById('report-file-b-picker'),
+  reportFileAName: document.getElementById('report-file-a-name'),
+  reportFileBName: document.getElementById('report-file-b-name'),
+  reportBrowseA: document.getElementById('report-browse-a'),
+  reportBrowseB: document.getElementById('report-browse-b'),
   reportSelectA: document.getElementById('report-select-a'),
   reportSelectB: document.getElementById('report-select-b'),
   compareBtn: document.getElementById('compare-btn'),
@@ -126,15 +165,27 @@ function setActiveView(viewName) {
     stopMeasurementPreview();
     stopContinuousMeasure();
   }
+  if (viewName === 'reports') {
+    setReportView(state.reportView);
+  }
 }
 
 function updateTopbarActions(viewName) {
-  const isHome = viewName === 'home';
   const isMeasurements = viewName === 'measurements';
 
-  elements.connectBtn.classList.toggle('is-hidden', !isHome);
-  elements.measureBtn.classList.toggle('is-hidden', !isMeasurements);
-  elements.addMeasurementBtn.classList.toggle('is-hidden', !isMeasurements);
+  if (elements.measureToggleWrap) {
+    elements.measureToggleWrap.classList.toggle('is-hidden', !isMeasurements);
+  }
+  if (elements.measurementNameWrap) {
+    elements.measurementNameWrap.classList.toggle('is-hidden', !isMeasurements);
+  }
+  if (elements.addMeasurementBtn) {
+    elements.addMeasurementBtn.classList.toggle('is-hidden', !isMeasurements);
+  }
+  if (elements.clearFrozenBtn) {
+    elements.clearFrozenBtn.classList.toggle('is-hidden', !isMeasurements);
+  }
+  updateMeasureToggle();
 }
 
 function setMeasurementView(view) {
@@ -153,14 +204,40 @@ function setMeasurementView(view) {
   }
 }
 
+function setReportView(view) {
+  const mode = view === 'table' ? 'table' : 'plot';
+  state.reportView = mode;
+  if (elements.reportPlotCard) {
+    elements.reportPlotCard.classList.toggle('is-hidden', mode !== 'plot');
+  }
+  if (elements.reportTableCard) {
+    elements.reportTableCard.classList.toggle('is-hidden', mode !== 'table');
+  }
+  if (elements.reportsToggle) {
+    elements.reportsToggle.querySelectorAll('.toggle-btn').forEach((btn) => {
+      btn.classList.toggle('is-active', btn.dataset.view === mode);
+    });
+  }
+  updateReportTable();
+}
+
 function stopContinuousMeasure() {
   if (state.timer) {
     clearInterval(state.timer);
     state.timer = null;
   }
   state.continuous = false;
-  if (elements.measureBtn) {
-    elements.measureBtn.textContent = 'Continuous Measure';
+  updateMeasureToggle();
+}
+
+function updateMeasureToggle() {
+  const input = elements.measureToggleInput;
+  if (!input) {
+    return;
+  }
+  input.checked = state.continuous;
+  if (elements.measureToggleLabel) {
+    elements.measureToggleLabel.textContent = state.continuous ? 'Measure ON' : 'Measure OFF';
   }
 }
 
@@ -190,7 +267,10 @@ function renderStatus(statuses, measurements = null) {
       <div class="device-status">${status}</div>
     `;
     elements.deviceStatusList.appendChild(card);
+  });
 
+  const reversed = [...normalized].reverse();
+  reversed.forEach((status) => {
     const dot = document.createElement('span');
     dot.className = 'status-dot';
     if (status !== 'Connected') {
@@ -198,6 +278,10 @@ function renderStatus(statuses, measurements = null) {
     }
     elements.reportStatusDots.appendChild(dot);
   });
+  if (elements.reportStatusDots) {
+    elements.reportStatusDots.style.gridTemplateRows = `repeat(${reversed.length || 1}, 1fr)`;
+  }
+  updateRawAvailability(normalized);
 }
 
 function statusBadge(status) {
@@ -264,15 +348,15 @@ function updateBridgeStatus(bridge) {
     }
     if (bridge.simulated) {
       indicator.className = 'status-dot';
-      text.textContent = 'Hub: simulation';
+      text.textContent = 'C-Measure: simulation';
       return;
     }
     if (bridge.reachable) {
       indicator.className = 'status-dot';
-      text.textContent = 'Hub: online';
+      text.textContent = 'C-Measure: active';
     } else {
       indicator.className = 'status-dot is-error';
-      text.textContent = 'Hub: offline';
+      text.textContent = 'C-Measure: offline';
     }
   };
   applyStatus(sidebar);
@@ -291,6 +375,22 @@ function updateBridgeStatus(bridge) {
   }
   if (elements.hubHelp) {
     elements.hubHelp.classList.toggle('is-hidden', !isOffline);
+  }
+  if (elements.hubWifiPanel) {
+    elements.hubWifiPanel.classList.toggle('is-hidden', !isOffline || !state.hubWifiOpen);
+    if (!isOffline) {
+      state.hubWifiOpen = false;
+    }
+  }
+
+  if (isOffline) {
+    elements.homeSystemSerial.textContent = 'System: -';
+    elements.homePairedSerial.textContent = 'Paired: -';
+    elements.homeCalibrationTime.textContent = 'Last calibration: -';
+  } else {
+    elements.homeSystemSerial.textContent = `System: ${state.systemInfoCache.systemSerial || '-'}`;
+    elements.homePairedSerial.textContent = `Paired: ${state.systemInfoCache.pairedSerial || '-'}`;
+    elements.homeCalibrationTime.textContent = `Last calibration: ${state.systemInfoCache.lastCalibrationAt || '-'}`;
   }
 }
 
@@ -377,7 +477,7 @@ function renderAreaPlot(svg, series, colors, labels) {
 
   if (labels && labels.length > 0) {
     labels.forEach((label, i) => {
-      const y = top + (i * plotHeight) / Math.max(labels.length - 1, 1);
+      const y = bottom - (i * plotHeight) / Math.max(labels.length - 1, 1);
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       text.setAttribute('x', 6);
       text.setAttribute('y', y + 4);
@@ -394,7 +494,7 @@ function renderAreaPlot(svg, series, colors, labels) {
     }
     const points = values.map((value, i) => {
       const x = left + (value / maxVal) * plotWidth;
-      const y = top + (i * plotHeight) / Math.max(values.length - 1, 1);
+      const y = bottom - (i * plotHeight) / Math.max(values.length - 1, 1);
       return { x, y };
     });
 
@@ -417,6 +517,96 @@ function renderAreaPlot(svg, series, colors, labels) {
   });
 }
 
+function renderMeasurementPlot(values) {
+  const liveValues = Array.isArray(values) ? values : [];
+  const frozen = Array.isArray(state.frozenMeasurements) ? state.frozenMeasurements : null;
+  const series = [];
+  const colors = [];
+  if (frozen && frozen.length) {
+    series.push(frozen);
+    colors.push('#9aa7bd');
+  }
+  series.push(liveValues);
+  colors.push('#f26a4b');
+  renderAreaPlot(
+    elements.loadPlot,
+    series,
+    colors,
+    buildHeightLabels(Math.max(...series.map((s) => s.length), 1)),
+  );
+}
+
+function updateReportTable() {
+  if (!elements.reportTableBody) {
+    return;
+  }
+  const valuesA = Array.isArray(state.reportValuesA) ? state.reportValuesA : [];
+  const valuesB = Array.isArray(state.reportValuesB) ? state.reportValuesB : [];
+  const maxRows = Math.max(valuesA.length, valuesB.length, 0);
+  elements.reportTableBody.innerHTML = '';
+  for (let i = 0; i < maxRows; i += 1) {
+    const row = document.createElement('tr');
+    const valueA = Number.isFinite(valuesA[i]) ? formatNumber(valuesA[i]) : '-';
+    const valueB = Number.isFinite(valuesB[i]) ? formatNumber(valuesB[i]) : '-';
+    row.innerHTML = `
+      <td>Cell ${i + 1}</td>
+      <td>${valueA}</td>
+      <td>${valueB}</td>
+    `;
+    elements.reportTableBody.appendChild(row);
+  }
+  if (elements.reportColA) {
+    elements.reportColA.textContent = state.reportLabelA || 'Test 1';
+  }
+  if (elements.reportColB) {
+    elements.reportColB.textContent = state.reportLabelB || 'Test 2';
+  }
+}
+
+function setReportData(valuesA, valuesB, labelA, labelB) {
+  state.reportValuesA = valuesA || [];
+  state.reportValuesB = valuesB || [];
+  state.reportLabelA = labelA || 'Test 1';
+  state.reportLabelB = labelB || 'Test 2';
+  updateReportTable();
+}
+
+function updateRawAvailability(statuses) {
+  if (!elements.rawToggleInput) {
+    return;
+  }
+  const connected = statuses.filter((s) => s === 'Connected').length;
+  const hasConnected = connected > 0;
+  elements.rawToggleInput.disabled = !hasConnected;
+  const wrapper = elements.rawToggleInput.closest('.toggle');
+  if (wrapper) {
+    wrapper.classList.toggle('is-disabled', !hasConnected);
+  }
+  if (!hasConnected && state.showRaw) {
+    state.showRaw = false;
+    updateRawToggle();
+  }
+}
+
+function canCompareLocalFiles() {
+  const hasContent = Boolean(state.reportLocalAContent && state.reportLocalBContent);
+  const hasInputs = Boolean(
+    elements.reportFileA?.files?.length &&
+    elements.reportFileB?.files?.length,
+  );
+  return hasContent || hasInputs;
+}
+
+function canCompareSavedTests() {
+  return Boolean(elements.reportSelectA?.value && elements.reportSelectB?.value);
+}
+
+function maybeAutoCompareReports() {
+  if (canCompareLocalFiles() || canCompareSavedTests()) {
+    compareReports();
+  }
+}
+
 async function refreshStatus({ silent = false } = {}) {
   const status = await safeRequest(() => apiRequest('/api/status'), silent ? null : 'Backend not reachable');
   if (!status) {
@@ -424,8 +614,32 @@ async function refreshStatus({ silent = false } = {}) {
   }
   renderStatus(status.statuses);
   updateSidebarStatus(status.statuses);
+  state.lastBridge = status.bridge;
   updateBridgeStatus(status.bridge);
   return status;
+}
+
+async function loadWifiNetworks() {
+  const data = await safeRequest(() => apiRequest('/api/wifi/networks'), 'Failed to list WiFi');
+  if (!data || !elements.hubWifiList) {
+    return;
+  }
+  const networks = data.networks || [];
+  elements.hubWifiList.innerHTML = '';
+  if (networks.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'No networks found';
+    elements.hubWifiList.appendChild(option);
+    return;
+  }
+  networks.forEach((net) => {
+    const option = document.createElement('option');
+    option.value = net.ssid;
+    const signal = Number.isFinite(net.signal) ? ` (${net.signal}%)` : '';
+    option.textContent = `${net.ssid}${signal}`;
+    elements.hubWifiList.appendChild(option);
+  });
 }
 
 function stopStatusPolling() {
@@ -462,7 +676,7 @@ function stopMeasurementPreview() {
 }
 
 function startMeasurementPreview() {
-  if (state.previewTimer || state.continuous) {
+  if (state.previewTimer || state.continuous || state.view !== 'measurements') {
     return;
   }
   state.previewTimer = setInterval(() => {
@@ -512,7 +726,7 @@ async function refreshMeasurements() {
   renderMeasurementsTable(data.measurements);
   updateRawToggle();
   const values = data.measurements.map((m) => m.value);
-  renderAreaPlot(elements.loadPlot, [values], ['#f26a4b'], buildHeightLabels(values.length));
+  renderMeasurementPlot(values);
 }
 
 async function refreshCalibration() {
@@ -610,6 +824,7 @@ async function refreshSettings() {
   if (!settings) {
     return;
   }
+  state.dataDir = settings.dataDir || '';
   elements.settingsDataDir.value = settings.dataDir || '';
   elements.homeDataDir.textContent = settings.dataDir || 'backend/data';
   elements.systemInfo.innerHTML = `
@@ -618,14 +833,27 @@ async function refreshSettings() {
   `;
 }
 
+async function ensureDataDir() {
+  if (state.dataDir) {
+    return state.dataDir;
+  }
+  await refreshSettings();
+  return state.dataDir;
+}
+
 async function refreshSystemData() {
   const system = await safeRequest(() => apiRequest('/api/system'));
   if (!system) {
     return;
   }
-  elements.homeSystemSerial.textContent = `System: ${system.systemSerial || '-'}`;
-  elements.homePairedSerial.textContent = `Paired: ${system.pairedSerial || '-'}`;
-  elements.homeCalibrationTime.textContent = `Last calibration: ${system.lastCalibrationAt || '-'}`;
+  state.systemInfoCache = {
+    systemSerial: system.systemSerial || '-',
+    pairedSerial: system.pairedSerial || '-',
+    lastCalibrationAt: system.lastCalibrationAt || '-',
+  };
+  elements.homeSystemSerial.textContent = `System: ${state.systemInfoCache.systemSerial}`;
+  elements.homePairedSerial.textContent = `Paired: ${state.systemInfoCache.pairedSerial}`;
+  elements.homeCalibrationTime.textContent = `Last calibration: ${state.systemInfoCache.lastCalibrationAt}`;
   if (elements.factorySerialCurrent) {
     elements.factorySerialCurrent.value = system.systemSerial || '';
   }
@@ -680,14 +908,51 @@ function readFile(input) {
   });
 }
 
+function getBaseName(path) {
+  if (!path) {
+    return '';
+  }
+  const parts = path.split(/[/\\\\]/);
+  return parts[parts.length - 1] || path;
+}
+
+function getMeasurementsDir() {
+  const baseDir = state.dataDir || (elements.homeDataDir ? elements.homeDataDir.textContent : '') || 'backend/data';
+  if (!baseDir) {
+    return undefined;
+  }
+  const trimmed = baseDir.replace(/[\\/]+$/, '');
+  const separator = trimmed.includes('\\') ? '\\' : '/';
+  return `${trimmed}${separator}measurements`;
+}
+
+function setLocalReport(side, content, name) {
+  if (side === 'a') {
+    state.reportLocalAContent = content;
+    state.reportLocalAName = name || '';
+    if (elements.reportFileAName) {
+      elements.reportFileAName.value = name || '';
+    }
+  } else {
+    state.reportLocalBContent = content;
+    state.reportLocalBName = name || '';
+    if (elements.reportFileBName) {
+      elements.reportFileBName.value = name || '';
+    }
+  }
+}
+
 async function compareReports() {
-  const fileA = await readFile(elements.reportFileA);
-  const fileB = await readFile(elements.reportFileB);
+  const fileA = state.reportLocalAContent ?? await readFile(elements.reportFileA);
+  const fileB = state.reportLocalBContent ?? await readFile(elements.reportFileB);
 
   if (fileA && fileB) {
     const valuesA = parseCsv(fileA);
     const valuesB = parseCsv(fileB);
     renderAreaPlot(elements.reportPlot, [valuesA, valuesB], ['#f04d4d', '#2f7de1'], buildHeightLabels(Math.max(valuesA.length, valuesB.length)));
+    const labelA = state.reportLocalAName || getBaseName(elements.reportFileA?.value) || 'Test 1';
+    const labelB = state.reportLocalBName || getBaseName(elements.reportFileB?.value) || 'Test 2';
+    setReportData(valuesA, valuesB, labelA, labelB);
     showToast('Compared local files');
     return;
   }
@@ -708,6 +973,7 @@ async function compareReports() {
   const valuesA = result.valuesA || [];
   const valuesB = result.valuesB || [];
   renderAreaPlot(elements.reportPlot, [valuesA, valuesB], ['#f04d4d', '#2f7de1'], buildHeightLabels(Math.max(valuesA.length, valuesB.length)));
+  setReportData(valuesA, valuesB, getBaseName(selectedA) || 'Test 1', getBaseName(selectedB) || 'Test 2');
   showToast('Compared saved tests');
 }
 
@@ -721,13 +987,29 @@ async function addMeasurement() {
   if (!result) {
     return;
   }
+  if (state.lastMeasurements) {
+    state.frozenMeasurements = state.lastMeasurements.map((m) => m.value);
+  }
   state.lastTest = result.file;
   elements.homeLastTest.textContent = result.file || 'None';
   showToast('Measurement saved');
   if (elements.measurementNameInput) {
     elements.measurementNameInput.value = '';
   }
+  if (state.lastMeasurements) {
+    renderMeasurementPlot(state.lastMeasurements.map((m) => m.value));
+  }
+  await refreshMeasurements();
   refreshReportsList();
+}
+
+function clearFrozenPlot() {
+  state.frozenMeasurements = null;
+  if (state.lastMeasurements) {
+    renderMeasurementPlot(state.lastMeasurements.map((m) => m.value));
+  } else {
+    renderMeasurementPlot([]);
+  }
 }
 
 async function zeroSet() {
@@ -739,10 +1021,18 @@ async function zeroSet() {
 }
 
 function toggleContinuous() {
-  state.continuous = !state.continuous;
-  elements.measureBtn.textContent = state.continuous ? 'Stop Measure' : 'Continuous Measure';
+  if (elements.measureToggleInput) {
+    state.continuous = elements.measureToggleInput.checked;
+  } else {
+    state.continuous = !state.continuous;
+  }
+  updateMeasureToggle();
   if (state.continuous) {
     stopMeasurementPreview();
+    refreshMeasurements();
+    if (state.timer) {
+      clearInterval(state.timer);
+    }
     state.timer = setInterval(async () => {
       await refreshMeasurements();
       await refreshStatus();
@@ -750,9 +1040,6 @@ function toggleContinuous() {
   } else if (state.timer) {
     clearInterval(state.timer);
     state.timer = null;
-    if (state.view === 'measurements') {
-      startMeasurementPreview();
-    }
   }
 }
 
@@ -878,6 +1165,16 @@ function wireEvents() {
     });
   }
 
+  if (elements.reportsToggle) {
+    elements.reportsToggle.addEventListener('click', (event) => {
+      const button = event.target.closest('.toggle-btn');
+      if (!button) {
+        return;
+      }
+      setReportView(button.dataset.view);
+    });
+  }
+
   elements.connectBtn.addEventListener('click', async () => {
     if (state.connecting) {
       return;
@@ -945,7 +1242,35 @@ function wireEvents() {
 
   if (elements.hubConnectBtn) {
     elements.hubConnectBtn.addEventListener('click', () => {
-      window.open('http://192.168.100.1', '_blank');
+      state.hubWifiOpen = !state.hubWifiOpen;
+      if (state.hubWifiOpen) {
+        loadWifiNetworks();
+      }
+      updateBridgeStatus(state.lastBridge || { reachable: false, simulated: false });
+    });
+  }
+
+  if (elements.hubWifiRefresh) {
+    elements.hubWifiRefresh.addEventListener('click', () => {
+      loadWifiNetworks();
+    });
+  }
+
+  if (elements.hubWifiConnect) {
+    elements.hubWifiConnect.addEventListener('click', async () => {
+      const ssid = elements.hubWifiList ? elements.hubWifiList.value : '';
+      const password = elements.hubWifiPassword ? elements.hubWifiPassword.value : '';
+      if (!ssid) {
+        showToast('Select a WiFi network');
+        return;
+      }
+      const result = await safeRequest(() => apiRequest('/api/wifi/connect', {
+        method: 'PUT',
+        body: JSON.stringify({ ssid, password }),
+      }), 'Failed to connect WiFi');
+      if (result) {
+        showToast('Connecting to WiFi');
+      }
     });
   }
 
@@ -968,10 +1293,97 @@ function wireEvents() {
     });
   }
 
-  elements.measureBtn.addEventListener('click', toggleContinuous);
+  if (elements.reportBrowseA) {
+    elements.reportBrowseA.addEventListener('click', async () => {
+      if (window.cmeasure && window.cmeasure.openReportFile) {
+        await ensureDataDir();
+        const defaultPath = getMeasurementsDir();
+        const filePath = await window.cmeasure.openReportFile(defaultPath);
+        if (!filePath) {
+          return;
+        }
+        const content = await window.cmeasure.readFile(filePath);
+        setLocalReport('a', content, getBaseName(filePath));
+        maybeAutoCompareReports();
+        return;
+      }
+      if (elements.reportFileA) {
+        elements.reportFileA.click();
+      }
+    });
+  }
+
+  if (elements.reportBrowseB) {
+    elements.reportBrowseB.addEventListener('click', async () => {
+      if (window.cmeasure && window.cmeasure.openReportFile) {
+        await ensureDataDir();
+        const defaultPath = getMeasurementsDir();
+        const filePath = await window.cmeasure.openReportFile(defaultPath);
+        if (!filePath) {
+          return;
+        }
+        const content = await window.cmeasure.readFile(filePath);
+        setLocalReport('b', content, getBaseName(filePath));
+        maybeAutoCompareReports();
+        return;
+      }
+      if (elements.reportFileB) {
+        elements.reportFileB.click();
+      }
+    });
+  }
+
+  if (elements.reportFileA) {
+    elements.reportFileA.addEventListener('change', () => {
+      const file = elements.reportFileA.files && elements.reportFileA.files[0];
+      state.reportLocalAContent = null;
+      state.reportLocalAName = file ? file.name : '';
+      if (elements.reportFileAName) {
+        elements.reportFileAName.value = file ? file.name : '';
+      }
+      maybeAutoCompareReports();
+    });
+  }
+
+  if (elements.reportFileB) {
+    elements.reportFileB.addEventListener('change', () => {
+      const file = elements.reportFileB.files && elements.reportFileB.files[0];
+      state.reportLocalBContent = null;
+      state.reportLocalBName = file ? file.name : '';
+      if (elements.reportFileBName) {
+        elements.reportFileBName.value = file ? file.name : '';
+      }
+      maybeAutoCompareReports();
+    });
+  }
+
+  if (elements.measureToggleInput) {
+    elements.measureToggleInput.addEventListener('change', toggleContinuous);
+  }
+  if (elements.clearFrozenBtn) {
+    elements.clearFrozenBtn.addEventListener('click', clearFrozenPlot);
+  }
   elements.addMeasurementBtn.addEventListener('click', addMeasurement);
   elements.zeroBtn.addEventListener('click', zeroSet);
-  elements.compareBtn.addEventListener('click', compareReports);
+  if (elements.compareBtn) {
+    elements.compareBtn.addEventListener('click', compareReports);
+  }
+  elements.reportSelectA.addEventListener('change', () => {
+    state.reportLocalAContent = null;
+    state.reportLocalAName = '';
+    if (elements.reportFileAName) {
+      elements.reportFileAName.value = '';
+    }
+    maybeAutoCompareReports();
+  });
+  elements.reportSelectB.addEventListener('change', () => {
+    state.reportLocalBContent = null;
+    state.reportLocalBName = '';
+    if (elements.reportFileBName) {
+      elements.reportFileBName.value = '';
+    }
+    maybeAutoCompareReports();
+  });
   elements.pdfBtn.addEventListener('click', generatePdf);
   elements.saveCalibrationBtn.addEventListener('click', saveCalibration);
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
@@ -981,6 +1393,19 @@ async function init() {
   wireEvents();
   setupCalibrationUnlock();
   setActiveView('home');
+  setReportView(state.reportView);
+  if (elements.reportFileA) {
+    elements.reportFileA.classList.add('is-hidden');
+  }
+  if (elements.reportFileB) {
+    elements.reportFileB.classList.add('is-hidden');
+  }
+  if (elements.reportFileAPicker) {
+    elements.reportFileAPicker.classList.remove('is-hidden');
+  }
+  if (elements.reportFileBPicker) {
+    elements.reportFileBPicker.classList.remove('is-hidden');
+  }
   await refreshStatus();
   startStatusPolling();
   updateRawToggle();

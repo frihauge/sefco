@@ -3,6 +3,16 @@ const state = {
   continuous: false,
   timer: null,
   lastTest: null,
+  connectTimer: null,
+  connecting: false,
+  statusTimer: null,
+  previewTimer: null,
+  showRaw: false,
+  lastMeasurements: null,
+  calibrationUnlocked: false,
+  calibrationOffsetsSet: false,
+  calibrationGainStatus: [],
+  measurementView: 'table',
 };
 
 const elements = {
@@ -10,6 +20,8 @@ const elements = {
   views: document.querySelectorAll('.view'),
   pageTitle: document.getElementById('page-title'),
   connectBtn: document.getElementById('connect-btn'),
+  rawToggleInput: document.getElementById('raw-toggle'),
+  rawToggleLabel: document.getElementById('raw-toggle-label'),
   measureBtn: document.getElementById('measure-btn'),
   addMeasurementBtn: document.getElementById('add-measurement-btn'),
   zeroBtn: document.getElementById('zero-btn'),
@@ -17,12 +29,20 @@ const elements = {
   homeConnected: document.getElementById('home-connected'),
   homeLastTest: document.getElementById('home-last-test'),
   homeDataDir: document.getElementById('home-data-dir'),
+  homeBridgeStatus: document.getElementById('home-bridge-status'),
+  homeBridgeDetail: document.getElementById('home-bridge-detail'),
+  hubConnectBtn: document.getElementById('hub-connect-btn'),
+  hubHelp: document.getElementById('hub-help'),
   homeSystemSerial: document.getElementById('home-system-serial'),
   homePairedSerial: document.getElementById('home-paired-serial'),
   homeCalibrationTime: document.getElementById('home-calibration-time'),
   deviceStatusList: document.getElementById('device-status-list'),
   measurementTableBody: document.getElementById('measurement-table-body'),
   loadPlot: document.getElementById('load-plot'),
+  measurementsToggle: document.getElementById('measurements-toggle'),
+  measurementsTableCard: document.getElementById('measurements-table-card'),
+  measurementsPlotCard: document.getElementById('measurements-plot-card'),
+  measurementNameInput: document.getElementById('measurement-name'),
   reportFileA: document.getElementById('report-file-a'),
   reportFileB: document.getElementById('report-file-b'),
   reportSelectA: document.getElementById('report-select-a'),
@@ -33,13 +53,22 @@ const elements = {
   reportStatusDots: document.getElementById('report-status-dots'),
   calibrationTableBody: document.getElementById('calibration-table-body'),
   saveCalibrationBtn: document.getElementById('save-calibration-btn'),
+  calZeroBtn: document.getElementById('cal-zero-btn'),
+  calGainWeight: document.getElementById('cal-gain-weight'),
   settingsDataDir: document.getElementById('settings-data-dir'),
-  settingsSimulate: document.getElementById('settings-simulate'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   systemInfo: document.getElementById('system-info'),
   toast: document.getElementById('toast'),
   brandTitle: document.getElementById('brand-title'),
   calibrationNav: document.getElementById('calibration-nav'),
+  factoryNav: document.getElementById('factory-nav'),
+  sidebarBridge: document.getElementById('sidebar-bridge'),
+  factorySerialCurrent: document.getElementById('factory-serial-current'),
+  factorySerialNew: document.getElementById('factory-serial-new'),
+  factorySerialSave: document.getElementById('factory-serial-save'),
+  factoryWifiSsid: document.getElementById('factory-wifi-ssid'),
+  factoryWifiPassword: document.getElementById('factory-wifi-password'),
+  factoryWifiSave: document.getElementById('factory-wifi-save'),
 };
 
 function showToast(message) {
@@ -80,44 +109,115 @@ function setActiveView(viewName) {
     item.classList.toggle('is-active', item.dataset.view === viewName);
   });
   elements.pageTitle.textContent = viewName.charAt(0).toUpperCase() + viewName.slice(1);
+  updateTopbarActions(viewName);
+  if (viewName !== 'home' && state.showRaw) {
+    state.showRaw = false;
+    updateRawToggle();
+    startStatusPolling();
+  }
+  if (viewName === 'measurements') {
+    setMeasurementView(state.measurementView);
+    startMeasurementPreview();
+  } else {
+    stopMeasurementPreview();
+    stopContinuousMeasure();
+  }
+  if (viewName === 'calibration') {
+    stopMeasurementPreview();
+    stopContinuousMeasure();
+  }
 }
 
-function renderStatus(statuses) {
-  const connected = statuses.filter((s) => s === 'Connected').length;
-  elements.homeConnected.textContent = `${connected} / ${statuses.length}`;
+function updateTopbarActions(viewName) {
+  const isHome = viewName === 'home';
+  const isMeasurements = viewName === 'measurements';
+
+  elements.connectBtn.classList.toggle('is-hidden', !isHome);
+  elements.measureBtn.classList.toggle('is-hidden', !isMeasurements);
+  elements.addMeasurementBtn.classList.toggle('is-hidden', !isMeasurements);
+}
+
+function setMeasurementView(view) {
+  const mode = view === 'plot' ? 'plot' : 'table';
+  state.measurementView = mode;
+  if (elements.measurementsTableCard) {
+    elements.measurementsTableCard.classList.toggle('is-hidden', mode !== 'table');
+  }
+  if (elements.measurementsPlotCard) {
+    elements.measurementsPlotCard.classList.toggle('is-hidden', mode !== 'plot');
+  }
+  if (elements.measurementsToggle) {
+    elements.measurementsToggle.querySelectorAll('.toggle-btn').forEach((btn) => {
+      btn.classList.toggle('is-active', btn.dataset.view === mode);
+    });
+  }
+}
+
+function stopContinuousMeasure() {
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+  state.continuous = false;
+  if (elements.measureBtn) {
+    elements.measureBtn.textContent = 'Continuous Measure';
+  }
+}
+
+function normalizeStatus(status) {
+  if (status === 'Connected' || status === 'Connecting') {
+    return status;
+  }
+  return 'Disconnected';
+}
+
+function renderStatus(statuses, measurements = null) {
+  const normalized = statuses.map((status) => normalizeStatus(status));
+  const connected = normalized.filter((s) => s === 'Connected').length;
+  elements.homeConnected.textContent = `${connected} / ${normalized.length}`;
   elements.deviceStatusList.innerHTML = '';
   elements.reportStatusDots.innerHTML = '';
-  statuses.forEach((status, idx) => {
+  normalized.forEach((status, idx) => {
+    const raw = measurements && measurements[idx] ? measurements[idx].raw : null;
+    const showRaw = state.showRaw && status === 'Connected' && Number.isFinite(raw);
     const card = document.createElement('div');
-    card.className = 'device-card';
-    card.innerHTML = `<span>Cell ${idx + 1}</span><span>${status}</span>`;
+    card.className = status === 'Connected' ? 'device-card is-connected' : 'device-card is-warning';
+    card.innerHTML = `
+      <div class="device-meta">
+        <div class="device-label">Cell ${idx + 1}</div>
+        ${showRaw ? `<div class="device-raw">Raw: ${formatNumber(raw, 6)}</div>` : ''}
+      </div>
+      <div class="device-status">${status}</div>
+    `;
     elements.deviceStatusList.appendChild(card);
 
     const dot = document.createElement('span');
     dot.className = 'status-dot';
-    if (status === 'Connecting') {
+    if (status !== 'Connected') {
       dot.classList.add('is-warning');
-    } else if (status.startsWith('Error') || status === 'Disconnected') {
-      dot.classList.add('is-error');
     }
     elements.reportStatusDots.appendChild(dot);
   });
 }
 
 function statusBadge(status) {
+  const normalized = normalizeStatus(status);
   const base = document.createElement('span');
   base.className = 'status-badge';
-  if (status === 'Connected') {
+  if (normalized === 'Connected') {
     base.classList.add('is-connected');
-  } else if (status === 'Connecting') {
-    base.classList.add('is-warning');
-  } else if (status.startsWith('Error')) {
-    base.classList.add('is-error');
   } else {
     base.classList.add('is-warning');
   }
-  base.textContent = status;
+  base.textContent = normalized;
   return base;
+}
+
+function formatNumber(value, digits = 5) {
+  if (!Number.isFinite(value)) {
+    return '-';
+  }
+  return value.toFixed(digits);
 }
 
 function buildHeightLabels(count) {
@@ -139,22 +239,76 @@ function updateSidebarStatus(statuses) {
     indicator.className = 'status-dot is-warning';
     text.textContent = `${connected}/${statuses.length} connected`;
   } else {
-    indicator.className = 'status-dot is-error';
-    text.textContent = 'Disconnected';
+    indicator.className = 'status-dot is-warning';
+    text.textContent = 'Cells disconnected';
+  }
+}
+
+function updateBridgeStatus(bridge) {
+  const sidebar = elements.sidebarBridge;
+  const home = elements.homeBridgeStatus;
+  const detail = elements.homeBridgeDetail;
+  const applyStatus = (container) => {
+    if (!container) {
+      return;
+    }
+    const indicator = container.querySelector('.status-dot');
+    const text = container.querySelector('span:last-child');
+    if (!indicator || !text) {
+      return;
+    }
+    if (!bridge) {
+      indicator.className = 'status-dot is-warning';
+      text.textContent = 'Hub: checking...';
+      return;
+    }
+    if (bridge.simulated) {
+      indicator.className = 'status-dot';
+      text.textContent = 'Hub: simulation';
+      return;
+    }
+    if (bridge.reachable) {
+      indicator.className = 'status-dot';
+      text.textContent = 'Hub: online';
+    } else {
+      indicator.className = 'status-dot is-error';
+      text.textContent = 'Hub: offline';
+    }
+  };
+  applyStatus(sidebar);
+  applyStatus(home);
+  if (detail) {
+    if (bridge && bridge.host) {
+      const hostLine = bridge.port ? `${bridge.host}:${bridge.port}` : bridge.host;
+      detail.textContent = `Host: ${hostLine}`;
+    } else {
+      detail.textContent = 'Host: -';
+    }
+  }
+  const isOffline = bridge && !bridge.simulated && bridge.reachable === false;
+  if (elements.hubConnectBtn) {
+    elements.hubConnectBtn.classList.toggle('is-hidden', !isOffline);
+  }
+  if (elements.hubHelp) {
+    elements.hubHelp.classList.toggle('is-hidden', !isOffline);
   }
 }
 
 function renderMeasurementsTable(measurements) {
   elements.measurementTableBody.innerHTML = '';
   measurements.forEach((item) => {
+    const normalized = normalizeStatus(item.status);
     const row = document.createElement('tr');
     const statusCell = document.createElement('td');
-    statusCell.appendChild(statusBadge(item.status));
+    statusCell.appendChild(statusBadge(normalized));
+    const value = normalized === 'Connected' && Number.isFinite(item.value)
+      ? formatNumber(item.value, 5)
+      : 'Error';
 
     row.innerHTML = `
       <td>${item.id + 1}</td>
       <td></td>
-      <td>${item.value.toFixed(2)}</td>
+      <td>${value}</td>
     `;
     row.children[1].appendChild(statusCell.firstChild);
     elements.measurementTableBody.appendChild(row);
@@ -263,13 +417,87 @@ function renderAreaPlot(svg, series, colors, labels) {
   });
 }
 
-async function refreshStatus() {
-  const status = await safeRequest(() => apiRequest('/api/status'), 'Backend not reachable');
+async function refreshStatus({ silent = false } = {}) {
+  const status = await safeRequest(() => apiRequest('/api/status'), silent ? null : 'Backend not reachable');
   if (!status) {
-    return;
+    return null;
   }
   renderStatus(status.statuses);
   updateSidebarStatus(status.statuses);
+  updateBridgeStatus(status.bridge);
+  return status;
+}
+
+function stopStatusPolling() {
+  if (state.statusTimer) {
+    clearInterval(state.statusTimer);
+    state.statusTimer = null;
+  }
+}
+
+function startStatusPolling() {
+  stopStatusPolling();
+  const interval = state.showRaw ? 1000 : 2000;
+  state.statusTimer = setInterval(() => {
+    if (state.showRaw) {
+      refreshMeasurements();
+    } else {
+      refreshStatus({ silent: true });
+    }
+  }, interval);
+}
+
+function stopConnectPolling() {
+  if (state.connectTimer) {
+    clearInterval(state.connectTimer);
+    state.connectTimer = null;
+  }
+}
+
+function stopMeasurementPreview() {
+  if (state.previewTimer) {
+    clearInterval(state.previewTimer);
+    state.previewTimer = null;
+  }
+}
+
+function startMeasurementPreview() {
+  if (state.previewTimer || state.continuous) {
+    return;
+  }
+  state.previewTimer = setInterval(() => {
+    refreshMeasurements();
+  }, 1000);
+}
+
+function startConnectPolling() {
+  stopConnectPolling();
+  let attempts = 0;
+  state.connectTimer = setInterval(async () => {
+    attempts += 1;
+    const status = await refreshStatus({ silent: true });
+    if (!status) {
+      return;
+    }
+    const statuses = status.statuses || [];
+    const stillConnecting = statuses.some((s) => s === 'Connecting');
+    if (!stillConnecting || attempts >= 40) {
+      stopConnectPolling();
+      state.connecting = false;
+      elements.connectBtn.disabled = false;
+    }
+  }, 1000);
+}
+
+function updateRawToggle() {
+  const input = elements.rawToggleInput;
+  if (!input) {
+    return;
+  }
+  input.checked = state.showRaw;
+  if (elements.rawToggleLabel) {
+    elements.rawToggleLabel.textContent = state.showRaw ? 'Raw ON' : 'Raw OFF';
+  }
 }
 
 async function refreshMeasurements() {
@@ -277,7 +505,12 @@ async function refreshMeasurements() {
   if (!data) {
     return;
   }
+  state.lastMeasurements = data.measurements || null;
+  if (state.lastMeasurements) {
+    renderStatus(state.lastMeasurements.map((m) => m.status), state.lastMeasurements);
+  }
   renderMeasurementsTable(data.measurements);
+  updateRawToggle();
   const values = data.measurements.map((m) => m.value);
   renderAreaPlot(elements.loadPlot, [values], ['#f26a4b'], buildHeightLabels(values.length));
 }
@@ -287,16 +520,89 @@ async function refreshCalibration() {
   if (!data) {
     return;
   }
+  if (!Array.isArray(state.calibrationGainStatus) || state.calibrationGainStatus.length !== data.calibration.length) {
+    state.calibrationGainStatus = new Array(data.calibration.length).fill(false);
+  }
   elements.calibrationTableBody.innerHTML = '';
   data.calibration.forEach((row, idx) => {
     const tr = document.createElement('tr');
+    const gainDone = state.calibrationGainStatus[idx] === true;
+    tr.className = `cal-row ${gainDone ? 'is-done' : 'is-pending'}`;
     tr.innerHTML = `
       <td>${idx + 1}</td>
-      <td><input class="field-input" data-field="Multiplier" value="${row.Multiplier}" /></td>
-      <td><input class="field-input" data-field="Addend" value="${row.Addend}" /></td>
+      <td><input class="field-input" data-field="Offset" value="${row.Offset ?? ''}" /></td>
+      <td><input class="field-input" data-field="Gain" value="${row.Gain ?? ''}" /></td>
+      <td><button class="btn ghost compact" data-action="set-gain" data-index="${idx}">Set Gain</button></td>
     `;
     elements.calibrationTableBody.appendChild(tr);
   });
+  if (state.calibrationOffsetsSet) {
+    elements.calibrationTableBody.querySelectorAll('input[data-field="Offset"]').forEach((input) => {
+      input.classList.add('is-offset-done');
+    });
+  }
+}
+
+async function handleCalibrationZero() {
+  if (!elements.calZeroBtn) {
+    return;
+  }
+  state.calibrationOffsetsSet = false;
+  elements.calibrationTableBody.querySelectorAll('input[data-field="Offset"]').forEach((input) => {
+    input.classList.remove('is-offset-done');
+  });
+  elements.calibrationTableBody.querySelectorAll('tr').forEach((row) => {
+    row.classList.remove('is-pending', 'is-done');
+    row.classList.add('is-active');
+  });
+  elements.calZeroBtn.disabled = true;
+  const result = await safeRequest(
+    () => apiRequest('/api/calibration/zero', { method: 'POST' }),
+    'Failed to set zero',
+  );
+  elements.calZeroBtn.disabled = false;
+  if (result) {
+    state.calibrationOffsetsSet = true;
+    state.calibrationGainStatus = state.calibrationGainStatus.map(() => false);
+    await refreshCalibration();
+    showToast('Offsets updated');
+  } else {
+    elements.calibrationTableBody.querySelectorAll('tr').forEach((row) => {
+      row.classList.remove('is-active');
+      row.classList.add('is-pending');
+    });
+  }
+}
+
+async function handleCalibrationGain(cellIndex, button) {
+  const weightValue = elements.calGainWeight ? parseFloat(elements.calGainWeight.value) : NaN;
+  if (!Number.isFinite(weightValue)) {
+    showToast('Enter a valid gain weight');
+    return;
+  }
+  const row = button ? button.closest('tr') : null;
+  if (row) {
+    row.classList.remove('is-pending', 'is-done');
+    row.classList.add('is-active');
+  }
+  if (button) {
+    button.disabled = true;
+  }
+  const result = await safeRequest(() => apiRequest('/api/calibration/gain', {
+    method: 'POST',
+    body: JSON.stringify({ cell: cellIndex, weight: weightValue }),
+  }), 'Failed to set gain');
+  if (button) {
+    button.disabled = false;
+  }
+  if (result) {
+    state.calibrationGainStatus[cellIndex] = true;
+    await refreshCalibration();
+    showToast(`Gain set for Cell ${cellIndex + 1}`);
+  } else if (row) {
+    row.classList.remove('is-active');
+    row.classList.add('is-pending');
+  }
 }
 
 async function refreshSettings() {
@@ -305,7 +611,6 @@ async function refreshSettings() {
     return;
   }
   elements.settingsDataDir.value = settings.dataDir || '';
-  elements.settingsSimulate.checked = Boolean(settings.simulate);
   elements.homeDataDir.textContent = settings.dataDir || 'backend/data';
   elements.systemInfo.innerHTML = `
     <div>Backend: ${settings.simulate ? 'Simulation' : 'Live'}</div>
@@ -321,6 +626,12 @@ async function refreshSystemData() {
   elements.homeSystemSerial.textContent = `System: ${system.systemSerial || '-'}`;
   elements.homePairedSerial.textContent = `Paired: ${system.pairedSerial || '-'}`;
   elements.homeCalibrationTime.textContent = `Last calibration: ${system.lastCalibrationAt || '-'}`;
+  if (elements.factorySerialCurrent) {
+    elements.factorySerialCurrent.value = system.systemSerial || '';
+  }
+  if (elements.factoryWifiSsid) {
+    elements.factoryWifiSsid.value = system.wifiSsid || '';
+  }
 }
 
 async function refreshReportsList() {
@@ -401,13 +712,21 @@ async function compareReports() {
 }
 
 async function addMeasurement() {
-  const result = await safeRequest(() => apiRequest('/api/measurements', { method: 'POST' }), 'Failed to save measurement');
+  const name = elements.measurementNameInput ? elements.measurementNameInput.value.trim() : '';
+  const payload = name ? { name } : {};
+  const result = await safeRequest(() => apiRequest('/api/measurements', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }), 'Failed to save measurement');
   if (!result) {
     return;
   }
   state.lastTest = result.file;
   elements.homeLastTest.textContent = result.file || 'None';
   showToast('Measurement saved');
+  if (elements.measurementNameInput) {
+    elements.measurementNameInput.value = '';
+  }
   refreshReportsList();
 }
 
@@ -423,6 +742,7 @@ function toggleContinuous() {
   state.continuous = !state.continuous;
   elements.measureBtn.textContent = state.continuous ? 'Stop Measure' : 'Continuous Measure';
   if (state.continuous) {
+    stopMeasurementPreview();
     state.timer = setInterval(async () => {
       await refreshMeasurements();
       await refreshStatus();
@@ -430,6 +750,9 @@ function toggleContinuous() {
   } else if (state.timer) {
     clearInterval(state.timer);
     state.timer = null;
+    if (state.view === 'measurements') {
+      startMeasurementPreview();
+    }
   }
 }
 
@@ -439,8 +762,8 @@ async function saveCalibration() {
     const inputs = row.querySelectorAll('input');
     rows.push({
       LoadCell: String(idx),
-      Multiplier: inputs[0].value,
-      Addend: inputs[1].value,
+      Offset: inputs[0].value,
+      Gain: inputs[1].value,
     });
   });
   const result = await safeRequest(() => apiRequest('/api/calibration', {
@@ -458,7 +781,6 @@ async function saveSettings() {
     method: 'PUT',
     body: JSON.stringify({
       dataDir: elements.settingsDataDir.value,
-      simulate: elements.settingsSimulate.checked,
     }),
   }), 'Failed to save settings');
   if (result) {
@@ -488,12 +810,28 @@ function setCalibrationVisibility(isVisible) {
   }
 }
 
+function setCalibrationUnlocked(isUnlocked) {
+  state.calibrationUnlocked = isUnlocked;
+  setCalibrationVisibility(isUnlocked);
+}
+
+function setFactoryVisibility(isVisible) {
+  if (isVisible) {
+    elements.factoryNav.classList.remove('is-hidden');
+  } else {
+    elements.factoryNav.classList.add('is-hidden');
+  }
+}
+
+function setFactoryUnlocked(isUnlocked) {
+  setFactoryVisibility(isUnlocked);
+}
+
 function setupCalibrationUnlock() {
-  const stored = localStorage.getItem('calibrationUnlocked');
-  let unlocked = stored === 'true';
   let taps = 0;
 
-  setCalibrationVisibility(unlocked);
+  setCalibrationUnlocked(false);
+  setFactoryUnlocked(false);
 
   elements.brandTitle.addEventListener('click', () => {
     taps += 1;
@@ -503,11 +841,13 @@ function setupCalibrationUnlock() {
     taps = 0;
     const code = window.prompt('Enter access code');
     if (code && code.trim().toLowerCase() === 'cal') {
-      unlocked = true;
-      localStorage.setItem('calibrationUnlocked', 'true');
-      setCalibrationVisibility(true);
+      setCalibrationUnlocked(true);
       setActiveView('calibration');
       showToast('Calibration unlocked');
+    } else if (code && code.trim().toLowerCase() === 'fset') {
+      setFactoryUnlocked(true);
+      setActiveView('factory');
+      showToast('Factory settings unlocked');
     } else {
       showToast('Access denied');
     }
@@ -517,17 +857,116 @@ function setupCalibrationUnlock() {
 function wireEvents() {
   elements.navItems.forEach((item) => {
     item.addEventListener('click', () => {
-      setActiveView(item.dataset.view);
+      const targetView = item.dataset.view;
+      setActiveView(targetView);
+      if (targetView !== 'calibration' && state.calibrationUnlocked) {
+        setCalibrationUnlocked(false);
+      }
+      if (targetView !== 'factory') {
+        setFactoryUnlocked(false);
+      }
     });
   });
 
+  if (elements.measurementsToggle) {
+    elements.measurementsToggle.addEventListener('click', (event) => {
+      const button = event.target.closest('.toggle-btn');
+      if (!button) {
+        return;
+      }
+      setMeasurementView(button.dataset.view);
+    });
+  }
+
   elements.connectBtn.addEventListener('click', async () => {
+    if (state.connecting) {
+      return;
+    }
+    state.connecting = true;
+    elements.connectBtn.disabled = true;
     const result = await safeRequest(() => apiRequest('/api/connect', { method: 'POST' }), 'Failed to connect');
     if (result) {
       await refreshStatus();
       showToast('Connecting to sensors');
+      startConnectPolling();
+      return;
+    }
+    state.connecting = false;
+    elements.connectBtn.disabled = false;
+  });
+
+  if (elements.rawToggleInput) {
+    elements.rawToggleInput.addEventListener('change', () => {
+      state.showRaw = elements.rawToggleInput.checked;
+      updateRawToggle();
+      startStatusPolling();
+      if (state.showRaw) {
+        refreshMeasurements();
+        return;
+      }
+      if (state.lastMeasurements) {
+        renderStatus(state.lastMeasurements.map((m) => m.status), state.lastMeasurements);
+        return;
+      }
+      refreshStatus({ silent: true });
+    });
+  }
+
+  elements.calZeroBtn.addEventListener('click', handleCalibrationZero);
+
+  elements.calibrationTableBody.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action="set-gain"]');
+    if (!button) {
+      return;
+    }
+    const idx = parseInt(button.dataset.index, 10);
+    if (Number.isNaN(idx)) {
+      return;
+    }
+    handleCalibrationGain(idx, button);
+  });
+
+  elements.factorySerialSave.addEventListener('click', async () => {
+    const serial = elements.factorySerialNew.value.trim();
+    if (!serial) {
+      showToast('Enter a serial number');
+      return;
+    }
+    const result = await safeRequest(() => apiRequest('/api/system/serial', {
+      method: 'PUT',
+      body: JSON.stringify({ serial }),
+    }), 'Failed to save serial');
+    if (result) {
+      elements.factorySerialNew.value = '';
+      await refreshSystemData();
+      showToast('Serial updated');
     }
   });
+
+  if (elements.hubConnectBtn) {
+    elements.hubConnectBtn.addEventListener('click', () => {
+      window.open('http://192.168.100.1', '_blank');
+    });
+  }
+
+  if (elements.factoryWifiSave) {
+    elements.factoryWifiSave.addEventListener('click', async () => {
+      const ssid = elements.factoryWifiSsid ? elements.factoryWifiSsid.value.trim() : '';
+      const password = elements.factoryWifiPassword ? elements.factoryWifiPassword.value : '';
+      if (!ssid) {
+        showToast('Enter WiFi SSID');
+        return;
+      }
+      const result = await safeRequest(() => apiRequest('/api/system/wifi', {
+        method: 'PUT',
+        body: JSON.stringify({ ssid, password }),
+      }), 'Failed to save WiFi');
+      if (result) {
+        showToast('WiFi saved');
+        await refreshSystemData();
+      }
+    });
+  }
 
   elements.measureBtn.addEventListener('click', toggleContinuous);
   elements.addMeasurementBtn.addEventListener('click', addMeasurement);
@@ -543,6 +982,8 @@ async function init() {
   setupCalibrationUnlock();
   setActiveView('home');
   await refreshStatus();
+  startStatusPolling();
+  updateRawToggle();
   await refreshMeasurements();
   await refreshCalibration();
   await refreshSettings();

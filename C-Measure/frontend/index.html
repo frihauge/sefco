@@ -32,15 +32,23 @@
             <span class="nav-dot"></span>
             <span>Calibration</span>
           </button>
+          <button class="nav-item is-hidden" data-view="factory" id="factory-nav">
+            <span class="nav-dot"></span>
+            <span>Factory Settings</span>
+          </button>
           <button class="nav-item" data-view="settings">
             <span class="nav-dot"></span>
             <span>Settings</span>
           </button>
         </nav>
         <div class="sidebar-footer">
+          <div class="status-pill" id="sidebar-bridge">
+            <span class="status-dot is-warning"></span>
+            <span>Hub: checking...</span>
+          </div>
           <div class="status-pill" id="sidebar-connection">
             <span class="status-dot is-warning"></span>
-            <span>Disconnected</span>
+            <span>Cells disconnected</span>
           </div>
         </div>
       </aside>
@@ -76,7 +84,21 @@
             <div class="card-foot">Change in Settings</div>
           </div>
           <div class="card">
-            <div class="card-title">System Pairing</div>
+            <div class="card-title">Hub Connection</div>
+            <div class="hub-status" id="home-bridge-status">
+              <span class="status-dot is-warning"></span>
+              <span>Checking...</span>
+            </div>
+            <div class="card-foot" id="home-bridge-detail">Host: -</div>
+            <button class="btn ghost is-hidden" id="hub-connect-btn">Connect Device</button>
+            <div class="hub-help is-hidden" id="hub-help">
+              <div class="card-foot">1) Connect to the device WiFi.</div>
+              <div class="card-foot">2) Open http://192.168.100.1</div>
+              <div class="card-foot">3) Join your customer WiFi.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">System Info</div>
             <div class="card-metric small" id="home-system-serial">System: -</div>
             <div class="card-foot" id="home-paired-serial">Paired: -</div>
             <div class="card-foot" id="home-calibration-time">Last calibration: -</div>
@@ -84,14 +106,29 @@
         </div>
 
           <div class="card wide">
-            <div class="card-title">Devices</div>
+            <div class="card-title-row">
+              <div class="card-title">Devices</div>
+              <label class="toggle">
+                <input type="checkbox" id="raw-toggle" />
+                <span class="toggle-ui"></span>
+                <span class="toggle-label" id="raw-toggle-label">Raw OFF</span>
+              </label>
+            </div>
             <div class="device-list" id="device-status-list"></div>
           </div>
         </section>
 
         <section class="view" id="view-measurements">
-          <div class="card">
+          <div class="view-toggle" id="measurements-toggle">
+            <button class="toggle-btn is-active" data-view="table">Table</button>
+            <button class="toggle-btn" data-view="plot">Plot</button>
+          </div>
+          <div class="card" id="measurements-table-card">
             <div class="card-title">Load Data</div>
+            <div class="measurement-name">
+              <label class="field-label" for="measurement-name">Measurement name</label>
+              <input class="field-input" id="measurement-name" placeholder="e.g. Test 1" />
+            </div>
             <table class="data-table">
               <thead>
                 <tr>
@@ -107,7 +144,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card" id="measurements-plot-card">
             <div class="card-title">Load Plot</div>
             <div class="plot-wrap">
               <svg id="load-plot" viewBox="0 0 620 240" aria-label="Load plot"></svg>
@@ -163,19 +200,73 @@
 
         <section class="view" id="view-calibration">
           <div class="card">
+            <div class="card-title">Calibration Procedure</div>
+            <div class="cal-steps">
+              <div class="cal-step">
+                <span class="step-label">Step 1</span>
+                <span>Remove all loads from the cells.</span>
+              </div>
+              <div class="cal-step">
+                <span class="step-label">Step 2</span>
+                <span>Press Set Zero to average 10 samples and update offsets.</span>
+                <button class="btn ghost" id="cal-zero-btn">Set Zero</button>
+              </div>
+              <div class="cal-step">
+                <span class="step-label">Step 3</span>
+                <span>Enter known gain weight and press Set Gain on each cell (avg 100 samples).</span>
+              </div>
+            </div>
+            <div class="cal-inputs">
+              <label>
+                <span class="field-label">Gain weight</span>
+                <input class="field-input" id="cal-gain-weight" placeholder="e.g. 200" />
+              </label>
+              <div class="cal-note">Weight is applied to the selected cell when you click Set Gain.</div>
+            </div>
+          </div>
+          <div class="card">
             <div class="card-title">Calibration Table</div>
             <table class="data-table">
               <thead>
                 <tr>
                   <th>Load Cell</th>
-                  <th>Multiplier</th>
-                  <th>Addend</th>
+                  <th>Offset</th>
+                  <th>Gain</th>
+                  <th>Set Gain</th>
                 </tr>
               </thead>
               <tbody id="calibration-table-body"></tbody>
             </table>
             <div class="card-actions">
               <button class="btn" id="save-calibration-btn">Save Calibration</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-factory">
+          <div class="card">
+            <div class="card-title">Factory Settings</div>
+            <div class="settings-grid">
+              <label>
+                <span class="field-label">Current serial</span>
+                <input class="field-input" id="factory-serial-current" readonly />
+              </label>
+              <label>
+                <span class="field-label">New serial</span>
+                <input class="field-input" id="factory-serial-new" placeholder="Enter serial" />
+              </label>
+              <button class="btn" id="factory-serial-save">Save Serial</button>
+            </div>
+            <div class="settings-grid">
+              <label>
+                <span class="field-label">WiFi SSID</span>
+                <input class="field-input" id="factory-wifi-ssid" placeholder="SSID" />
+              </label>
+              <label>
+                <span class="field-label">WiFi Password</span>
+                <input class="field-input" id="factory-wifi-password" type="password" placeholder="Password" />
+              </label>
+              <button class="btn" id="factory-wifi-save">Save WiFi</button>
             </div>
           </div>
         </section>
@@ -187,11 +278,6 @@
               <label>
                 <span class="field-label">Data directory</span>
                 <input class="field-input" id="settings-data-dir" />
-              </label>
-              <label class="toggle">
-                <input type="checkbox" id="settings-simulate" />
-                <span class="toggle-ui"></span>
-                <span class="toggle-label">Simulation mode</span>
               </label>
               <button class="btn" id="save-settings-btn">Save Settings</button>
             </div>

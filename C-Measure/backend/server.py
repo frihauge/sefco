@@ -38,25 +38,41 @@ class ApiHandler(BaseHTTPRequestHandler):
         if route == "/api/health":
             return self._send_json({"status": "ok"})
         if route == "/api/status":
+            bridge = self.server.service.get_bridge_status()
+            statuses = self.server.service.get_statuses()
+            connected = self.server.service.connected
+            if bridge and not bridge.get("simulated") and bridge.get("reachable") is False:
+                statuses = ["Disconnected" for _ in statuses]
+                connected = False
             return self._send_json({
-                "connected": self.server.service.connected,
+                "connected": connected,
                 "simulate": self.server.service.simulate,
-                "statuses": self.server.service.get_statuses(),
+                "statuses": statuses,
+                "bridge": bridge,
             })
         if route == "/api/measurements":
             values = self.server.service.get_measurements()
+            raw_values = self.server.service.get_raw_values()
             statuses = self.server.service.get_statuses()
+            bridge = self.server.service.get_bridge_status()
+            if bridge and not bridge.get("simulated") and bridge.get("reachable") is False:
+                statuses = ["Disconnected" for _ in statuses]
             items = []
             for idx, value in enumerate(values):
                 items.append({
                     "id": idx,
                     "status": statuses[idx] if idx < len(statuses) else "Unknown",
                     "value": value,
+                    "raw": raw_values[idx] if idx < len(raw_values) else None,
                     "unit": "N",
                 })
             return self._send_json({"measurements": items})
         if route == "/api/calibration":
-            return self._send_json({"calibration": self.server.service.calibration})
+            settings = load_settings()
+            return self._send_json({
+                "calibration": self.server.service.calibration,
+                "serial": settings.get("systemSerial"),
+            })
         if route == "/api/tests":
             return self._send_json({"files": self.server.storage.list_measurements()})
         if route == "/api/settings":
@@ -65,7 +81,10 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "simulate": self.server.service.simulate,
             })
         if route == "/api/system":
-            return self._send_json(self.server.system_info)
+            settings = load_settings()
+            info = dict(self.server.system_info)
+            info["wifiSsid"] = settings.get("wifiSsid")
+            return self._send_json(info)
         self.send_error(404)
 
     def _handle_api_post(self):
@@ -83,7 +102,9 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "statuses": self.server.service.get_statuses(),
             })
         if route == "/api/measurements":
-            filename = self.server.service.record_measurement()
+            payload = self._read_json()
+            name = payload.get("name") if isinstance(payload, dict) else None
+            filename = self.server.service.record_measurement(name=name)
             return self._send_json({"file": filename})
         if route == "/api/reports/compare":
             payload = self._read_json()
@@ -103,6 +124,54 @@ class ApiHandler(BaseHTTPRequestHandler):
         if route == "/api/zero":
             self.server.service.zero_set()
             return self._send_json({"status": "ok"})
+        if route == "/api/calibration/zero":
+            rows = self.server.service.calibration
+            offsets = self.server.service.average_raw_all(samples=10, delay=1.0)
+            updated = []
+            for idx, row in enumerate(rows):
+                updated.append({
+                    "LoadCell": str(idx),
+                    "Offset": str(offsets[idx] if idx < len(offsets) else 0),
+                    "Gain": row.get("Gain", "1"),
+                })
+            settings = load_settings()
+            serial = settings.get("systemSerial")
+            self.server.service.update_calibration(updated, serial=serial)
+            return self._send_json({"calibration": self.server.service.calibration})
+        if route == "/api/calibration/gain":
+            payload = self._read_json()
+            try:
+                cell_index = int(payload.get("cell"))
+            except (TypeError, ValueError):
+                return self._send_json({"error": "Invalid cell index"}, status=400)
+            try:
+                weight = float(payload.get("weight"))
+            except (TypeError, ValueError):
+                return self._send_json({"error": "Invalid weight"}, status=400)
+            statuses = self.server.service.get_statuses()
+            if cell_index < 0 or cell_index >= len(statuses):
+                return self._send_json({"error": "Invalid cell index"}, status=400)
+            if statuses[cell_index] != "Connected":
+                return self._send_json({"error": "Cell not connected"}, status=400)
+            avg_raw = self.server.service.average_raw_cell(cell_index, samples=100, delay=0.05)
+            rows = list(self.server.service.calibration)
+            try:
+                offset = float(rows[cell_index].get("Offset", 0))
+            except (TypeError, ValueError):
+                offset = 0.0
+            denom = avg_raw - offset
+            if denom == 0:
+                return self._send_json({"error": "Invalid gain (zero delta)"}, status=400)
+            gain = weight / denom
+            rows[cell_index] = {
+                "LoadCell": str(cell_index),
+                "Offset": str(offset),
+                "Gain": str(gain),
+            }
+            settings = load_settings()
+            serial = settings.get("systemSerial")
+            self.server.service.update_calibration(rows, serial=serial)
+            return self._send_json({"calibration": self.server.service.calibration, "cell": cell_index})
         self.send_error(404)
 
     def _handle_api_put(self):
@@ -112,7 +181,9 @@ class ApiHandler(BaseHTTPRequestHandler):
             rows = payload.get("calibration")
             if not isinstance(rows, list):
                 return self._send_json({"error": "Invalid calibration data"}, status=400)
-            self.server.service.update_calibration(rows)
+            settings = load_settings()
+            serial = settings.get("systemSerial")
+            self.server.service.update_calibration(rows, serial=serial)
             self.server.update_pairing()
             return self._send_json({"calibration": self.server.service.calibration})
         if route == "/api/settings":
@@ -133,6 +204,29 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "dataDir": str(self.server.storage.data_dir),
                 "simulate": self.server.service.simulate,
             })
+        if route == "/api/system/serial":
+            payload = self._read_json()
+            serial = payload.get("serial")
+            if not serial:
+                return self._send_json({"error": "Serial is required"}, status=400)
+            settings = load_settings()
+            settings["systemSerial"] = str(serial)
+            save_settings(settings)
+            self.server.system_info["systemSerial"] = str(serial)
+            return self._send_json(self.server.system_info)
+        if route == "/api/system/wifi":
+            payload = self._read_json()
+            ssid = payload.get("ssid")
+            password = payload.get("password")
+            if not ssid:
+                return self._send_json({"error": "SSID is required"}, status=400)
+            settings = load_settings()
+            settings["wifiSsid"] = str(ssid)
+            settings["wifiPassword"] = str(password or "")
+            save_settings(settings)
+            info = dict(self.server.system_info)
+            info["wifiSsid"] = settings.get("wifiSsid")
+            return self._send_json(info)
         self.send_error(404)
 
     def _serve_static(self):
@@ -217,7 +311,10 @@ def main():
         simulate = simulate_env.lower() in ("1", "true", "yes")
 
     storage = Storage(data_dir)
-    service = PhidgetService(storage, simulate=simulate)
+    # Default: 6 ports x 2 channels = 12 sensors (same as WrapView)
+    num_ports = int(settings.get("numPorts", 6))
+    num_channels = int(settings.get("numChannels", 2))
+    service = PhidgetService(storage, num_ports=num_ports, num_channels=num_channels, simulate=simulate)
 
     port = int(os.getenv("CMEASURE_PORT", "8123"))
     ui_dir = os.getenv("CMEASURE_UI_DIR") or str(Path(__file__).resolve().parent.parent / "frontend")

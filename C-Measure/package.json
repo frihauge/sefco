@@ -6,9 +6,45 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "start:backend": "python backend/server.py"
+    "start:backend": "python backend/server.py",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "^28.2.0"
+    "electron": "^34.5.8",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.sefco.cmeasure",
+    "productName": "C-Measure",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "frontend/**/*",
+      "backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "frontend/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

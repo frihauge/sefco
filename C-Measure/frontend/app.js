@@ -1,3 +1,7 @@
+const PLOT_AXIS_PAD = 18;
+
+let measurementDotsRaf = null;
+
 const state = {
   view: 'home',
   continuous: false,
@@ -20,6 +24,9 @@ const state = {
   reportValuesB: null,
   reportLabelA: 'Test 1',
   reportLabelB: 'Test 2',
+  calibrationMissing: false,
+  plotMaxX: null,
+  lastStatuses: [],
   systemInfoCache: {
     systemSerial: '-',
     pairedSerial: '-',
@@ -51,6 +58,8 @@ const elements = {
   homeConnected: document.getElementById('home-connected'),
   homeLastTest: document.getElementById('home-last-test'),
   homeDataDir: document.getElementById('home-data-dir'),
+  calibrationWarning: document.getElementById('calibration-warning'),
+  systemInfoCard: document.getElementById('system-info-card'),
   homeBridgeStatus: document.getElementById('home-bridge-status'),
   homeBridgeDetail: document.getElementById('home-bridge-detail'),
   hubConnectBtn: document.getElementById('hub-connect-btn'),
@@ -90,11 +99,13 @@ const elements = {
   pdfBtn: document.getElementById('pdf-btn'),
   reportPlot: document.getElementById('report-plot'),
   reportStatusDots: document.getElementById('report-status-dots'),
+  measurementStatusDots: document.getElementById('measurement-status-dots'),
   calibrationTableBody: document.getElementById('calibration-table-body'),
   saveCalibrationBtn: document.getElementById('save-calibration-btn'),
   calZeroBtn: document.getElementById('cal-zero-btn'),
   calGainWeight: document.getElementById('cal-gain-weight'),
   settingsDataDir: document.getElementById('settings-data-dir'),
+  settingsPlotMax: document.getElementById('settings-plot-max'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   systemInfo: document.getElementById('system-info'),
   toast: document.getElementById('toast'),
@@ -202,6 +213,9 @@ function setMeasurementView(view) {
       btn.classList.toggle('is-active', btn.dataset.view === mode);
     });
   }
+  if (mode === 'plot') {
+    scheduleMeasurementDotsLayout();
+  }
 }
 
 function setReportView(view) {
@@ -248,39 +262,69 @@ function normalizeStatus(status) {
   return 'Disconnected';
 }
 
+function renderStatusDots(container, statuses, reverse = true, svg = null) {
+  if (!container) {
+    return;
+  }
+  container.innerHTML = '';
+  const ordered = reverse ? [...statuses].reverse() : statuses;
+  ordered.forEach((status) => {
+    const dot = document.createElement('span');
+    dot.className = 'status-dot';
+    if (status !== 'Connected') {
+      dot.classList.add('is-warning');
+    }
+    container.appendChild(dot);
+  });
+  container.style.gridTemplateRows = `repeat(${ordered.length || 1}, 1fr)`;
+  if (svg) {
+    const { height: viewHeight } = getSvgSize(svg);
+    const svgRect = svg.getBoundingClientRect();
+    if (svgRect.height < 10) {
+      return;
+    }
+    const wrap = svg.closest('.plot-wrap');
+    const wrapStyle = wrap ? getComputedStyle(wrap) : null;
+    const padTop = wrapStyle ? parseFloat(wrapStyle.paddingTop) || 0 : 0;
+    const padBottom = wrapStyle ? parseFloat(wrapStyle.paddingBottom) || 0 : 0;
+    const axisPad = viewHeight ? (PLOT_AXIS_PAD / viewHeight) * svgRect.height : 0;
+    container.style.marginTop = `${padTop}px`;
+    container.style.marginBottom = `${padBottom}px`;
+    container.style.height = `${svgRect.height}px`;
+    container.style.paddingTop = `${axisPad}px`;
+    container.style.paddingBottom = `${axisPad}px`;
+  } else {
+    container.style.marginTop = '';
+    container.style.marginBottom = '';
+    container.style.height = '';
+    container.style.paddingTop = '';
+    container.style.paddingBottom = '';
+  }
+}
+
 function renderStatus(statuses, measurements = null) {
   const normalized = statuses.map((status) => normalizeStatus(status));
+  state.lastStatuses = normalized;
   const connected = normalized.filter((s) => s === 'Connected').length;
   elements.homeConnected.textContent = `${connected} / ${normalized.length}`;
   elements.deviceStatusList.innerHTML = '';
-  elements.reportStatusDots.innerHTML = '';
   normalized.forEach((status, idx) => {
     const raw = measurements && measurements[idx] ? measurements[idx].raw : null;
-    const showRaw = state.showRaw && status === 'Connected' && Number.isFinite(raw);
+    const showRawDiv = state.showRaw;
+    const rawValue = Number.isFinite(raw) ? formatNumber(raw, 6) : 'null';
     const card = document.createElement('div');
     card.className = status === 'Connected' ? 'device-card is-connected' : 'device-card is-warning';
     card.innerHTML = `
       <div class="device-meta">
         <div class="device-label">Cell ${idx + 1}</div>
-        ${showRaw ? `<div class="device-raw">Raw: ${formatNumber(raw, 6)}</div>` : ''}
+        ${showRawDiv ? `<div class="device-raw">Raw: ${rawValue}</div>` : ''}
       </div>
       <div class="device-status">${status}</div>
     `;
     elements.deviceStatusList.appendChild(card);
   });
 
-  const reversed = [...normalized].reverse();
-  reversed.forEach((status) => {
-    const dot = document.createElement('span');
-    dot.className = 'status-dot';
-    if (status !== 'Connected') {
-      dot.classList.add('is-warning');
-    }
-    elements.reportStatusDots.appendChild(dot);
-  });
-  if (elements.reportStatusDots) {
-    elements.reportStatusDots.style.gridTemplateRows = `repeat(${reversed.length || 1}, 1fr)`;
-  }
+  renderStatusDots(elements.measurementStatusDots, normalized, true, elements.loadPlot);
   updateRawAvailability(normalized);
 }
 
@@ -313,6 +357,9 @@ function buildHeightLabels(count) {
 }
 
 function updateSidebarStatus(statuses) {
+  if (!elements.sidebarConnection) {
+    return;
+  }
   const indicator = elements.sidebarConnection.querySelector('.status-dot');
   const text = elements.sidebarConnection.querySelector('span:last-child');
   const connected = statuses.filter((s) => s === 'Connected').length;
@@ -390,7 +437,8 @@ function updateBridgeStatus(bridge) {
   } else {
     elements.homeSystemSerial.textContent = `System: ${state.systemInfoCache.systemSerial || '-'}`;
     elements.homePairedSerial.textContent = `Paired: ${state.systemInfoCache.pairedSerial || '-'}`;
-    elements.homeCalibrationTime.textContent = `Last calibration: ${state.systemInfoCache.lastCalibrationAt || '-'}`;
+    const calibrationText = state.calibrationMissing ? '-' : (state.systemInfoCache.lastCalibrationAt || '-');
+    elements.homeCalibrationTime.textContent = `Last calibration: ${calibrationText}`;
   }
 }
 
@@ -428,11 +476,13 @@ function renderAreaPlot(svg, series, colors, labels) {
   const { width, height } = getSvgSize(svg);
   const left = 42;
   const right = width - 20;
-  const top = 18;
-  const bottom = height - 18;
+  const top = PLOT_AXIS_PAD;
+  const bottom = height - PLOT_AXIS_PAD;
   const plotWidth = right - left;
   const plotHeight = bottom - top;
-  const maxVal = Math.max(...series.flat(), 1);
+  const maxSetting = Number(state.plotMaxX);
+  const baseMax = Number.isFinite(maxSetting) && maxSetting > 0 ? maxSetting : Math.max(...series.flat(), 1);
+  const maxVal = Math.max(baseMax, 1);
   svg.innerHTML = '';
 
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -493,10 +543,11 @@ function renderAreaPlot(svg, series, colors, labels) {
       return;
     }
     const points = values.map((value, i) => {
-      const x = left + (value / maxVal) * plotWidth;
-      const y = bottom - (i * plotHeight) / Math.max(values.length - 1, 1);
-      return { x, y };
-    });
+        const clamped = Math.max(0, Math.min(value, maxVal));
+        const x = left + (clamped / maxVal) * plotWidth;
+        const y = bottom - (i * plotHeight) / Math.max(values.length - 1, 1);
+        return { x, y };
+      });
 
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     const d = [
@@ -571,6 +622,19 @@ function setReportData(valuesA, valuesB, labelA, labelB) {
   updateReportTable();
 }
 
+function updateCalibrationWarning() {
+  if (!elements.calibrationWarning) {
+    return;
+  }
+  const bridge = state.lastBridge;
+  const hubOnline = bridge && bridge.reachable === true && !bridge.simulated;
+  const show = hubOnline && state.calibrationMissing;
+  elements.calibrationWarning.classList.toggle('is-hidden', !show);
+  if (elements.systemInfoCard) {
+    elements.systemInfoCard.classList.toggle('is-warning', show);
+  }
+}
+
 function updateRawAvailability(statuses) {
   if (!elements.rawToggleInput) {
     return;
@@ -586,6 +650,34 @@ function updateRawAvailability(statuses) {
     state.showRaw = false;
     updateRawToggle();
   }
+}
+
+function updateMeasurementDotsLayout() {
+  if (!elements.measurementStatusDots || !elements.loadPlot) {
+    return;
+  }
+  if (state.view !== 'measurements' || state.measurementView !== 'plot') {
+    return;
+  }
+  const rect = elements.loadPlot.getBoundingClientRect();
+  if (rect.height < 10) {
+    return;
+  }
+  const statuses = Array.isArray(state.lastStatuses) ? state.lastStatuses : [];
+  if (statuses.length === 0) {
+    return;
+  }
+  renderStatusDots(elements.measurementStatusDots, statuses, true, elements.loadPlot);
+}
+
+function scheduleMeasurementDotsLayout() {
+  if (measurementDotsRaf) {
+    cancelAnimationFrame(measurementDotsRaf);
+  }
+  measurementDotsRaf = requestAnimationFrame(() => {
+    measurementDotsRaf = null;
+    updateMeasurementDotsLayout();
+  });
 }
 
 function canCompareLocalFiles() {
@@ -616,6 +708,8 @@ async function refreshStatus({ silent = false } = {}) {
   updateSidebarStatus(status.statuses);
   state.lastBridge = status.bridge;
   updateBridgeStatus(status.bridge);
+  state.calibrationMissing = Boolean(status.calibrationMissing);
+  updateCalibrationWarning();
   return status;
 }
 
@@ -727,6 +821,7 @@ async function refreshMeasurements() {
   updateRawToggle();
   const values = data.measurements.map((m) => m.value);
   renderMeasurementPlot(values);
+  scheduleMeasurementDotsLayout();
 }
 
 async function refreshCalibration() {
@@ -825,7 +920,15 @@ async function refreshSettings() {
     return;
   }
   state.dataDir = settings.dataDir || '';
+  const plotMaxRaw = settings.plotMaxX;
+  const plotMaxValue = Number.isFinite(plotMaxRaw) ? plotMaxRaw : parseFloat(plotMaxRaw);
+  if (Number.isFinite(plotMaxValue) && plotMaxValue > 0) {
+    state.plotMaxX = plotMaxValue;
+  }
   elements.settingsDataDir.value = settings.dataDir || '';
+  if (elements.settingsPlotMax) {
+    elements.settingsPlotMax.value = state.plotMaxX ?? elements.settingsPlotMax.value ?? '';
+  }
   elements.homeDataDir.textContent = settings.dataDir || 'backend/data';
   elements.systemInfo.innerHTML = `
     <div>Backend: ${settings.simulate ? 'Simulation' : 'Live'}</div>
@@ -1064,15 +1167,24 @@ async function saveCalibration() {
 }
 
 async function saveSettings() {
+  const maxInput = elements.settingsPlotMax ? elements.settingsPlotMax.value.trim() : '';
+  const maxValue = parseFloat(maxInput);
+  state.plotMaxX = Number.isFinite(maxValue) && maxValue > 0 ? maxValue : null;
+  if (elements.settingsPlotMax) {
+    elements.settingsPlotMax.value = state.plotMaxX ?? '';
+  }
   const result = await safeRequest(() => apiRequest('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({
       dataDir: elements.settingsDataDir.value,
+      plotMaxX: Number.isFinite(maxValue) && maxValue > 0 ? maxValue : null,
     }),
   }), 'Failed to save settings');
   if (result) {
     showToast('Settings saved');
-    refreshSettings();
+    await refreshSettings();
+    refreshMeasurements();
+    maybeAutoCompareReports();
   }
 }
 
@@ -1114,19 +1226,68 @@ function setFactoryUnlocked(isUnlocked) {
   setFactoryVisibility(isUnlocked);
 }
 
+function showPrompt(title = 'Enter value') {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('prompt-modal');
+    const titleEl = document.getElementById('prompt-title');
+    const input = document.getElementById('prompt-input');
+    const okBtn = document.getElementById('prompt-ok');
+    const cancelBtn = document.getElementById('prompt-cancel');
+
+    titleEl.textContent = title;
+    input.value = '';
+    modal.style.display = 'flex';
+
+    // Focus input after a short delay to ensure modal is visible
+    setTimeout(() => {
+      input.focus();
+    }, 100);
+
+    function cleanup() {
+      modal.style.display = 'none';
+      okBtn.removeEventListener('click', handleOk);
+      cancelBtn.removeEventListener('click', handleCancel);
+      input.removeEventListener('keydown', handleKeydown);
+    }
+
+    function handleOk() {
+      const value = input.value;
+      cleanup();
+      resolve(value);
+    }
+
+    function handleCancel() {
+      cleanup();
+      resolve(null);
+    }
+
+    function handleKeydown(e) {
+      if (e.key === 'Enter') {
+        handleOk();
+      } else if (e.key === 'Escape') {
+        handleCancel();
+      }
+    }
+
+    okBtn.addEventListener('click', handleOk);
+    cancelBtn.addEventListener('click', handleCancel);
+    input.addEventListener('keydown', handleKeydown);
+  });
+}
+
 function setupCalibrationUnlock() {
   let taps = 0;
 
   setCalibrationUnlocked(false);
   setFactoryUnlocked(false);
 
-  elements.brandTitle.addEventListener('click', () => {
+  elements.brandTitle.addEventListener('click', async () => {
     taps += 1;
     if (taps < 10) {
       return;
     }
     taps = 0;
-    const code = window.prompt('Enter access code');
+    const code = await showPrompt('Enter access code');
     if (code && code.trim().toLowerCase() === 'cal') {
       setCalibrationUnlocked(true);
       setActiveView('calibration');
@@ -1135,7 +1296,7 @@ function setupCalibrationUnlock() {
       setFactoryUnlocked(true);
       setActiveView('factory');
       showToast('Factory settings unlocked');
-    } else {
+    } else if (code) {
       showToast('Access denied');
     }
   });
@@ -1174,6 +1335,10 @@ function wireEvents() {
       setReportView(button.dataset.view);
     });
   }
+
+  window.addEventListener('resize', () => {
+    scheduleMeasurementDotsLayout();
+  });
 
   elements.connectBtn.addEventListener('click', async () => {
     if (state.connecting) {

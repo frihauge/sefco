@@ -5,26 +5,39 @@ from datetime import datetime
 
 class Storage:
     def __init__(self, data_dir):
+        self.calibration_missing = True
+        self.calibration_timestamp = None
         self.set_data_dir(data_dir)
 
     def set_data_dir(self, data_dir):
         self.data_dir = Path(data_dir).resolve()
         self.measurements_dir = self.data_dir / "measurements"
-        self.calibration_file = self.data_dir / "caldata.csv"
         self._ensure_dirs()
 
     def _ensure_dirs(self):
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.measurements_dir.mkdir(parents=True, exist_ok=True)
 
-    def read_calibration(self, count):
-        if not self.calibration_file.exists():
-            self._write_default_calibration(count)
+    def _calibration_path(self, serial=None):
+        if serial:
+            return self.data_dir / f"caldata_{serial}.csv"
+        return self.data_dir / "caldata.csv"
+
+    def read_calibration(self, count, serial=None):
+        path = self._calibration_path(serial)
+        if not path.exists():
+            self.calibration_missing = True
+            self.calibration_timestamp = None
+            return [self._default_row(i) for i in range(count)]
+        self.calibration_missing = False
+        self.calibration_timestamp = None
         rows = [self._default_row(i) for i in range(count)]
         try:
-            with self.calibration_file.open("r", newline="") as handle:
+            with path.open("r", newline="") as handle:
                 reader = csv.DictReader(handle)
                 for row in reader:
+                    if self.calibration_timestamp is None:
+                        self.calibration_timestamp = row.get("CalibratedAt") or None
                     try:
                         idx = int(row.get("LoadCell", -1))
                     except ValueError:
@@ -60,16 +73,20 @@ class Storage:
 
     def write_calibration(self, rows, serial=None):
         self._ensure_dirs()
-        with self.calibration_file.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["LoadCell", "Offset", "Gain", "Serial"])
+        path = self._calibration_path(serial)
+        calibrated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["LoadCell", "Offset", "Gain", "CalibratedAt"])
             writer.writeheader()
             for row in rows:
                 writer.writerow({
                     "LoadCell": row.get("LoadCell"),
                     "Offset": row.get("Offset", "0"),
                     "Gain": row.get("Gain", "1"),
-                    "Serial": serial or "",
+                    "CalibratedAt": calibrated_at,
                 })
+        self.calibration_missing = False
+        self.calibration_timestamp = calibrated_at
 
     def write_measurement(self, values, name=None):
         self._ensure_dirs()
@@ -112,9 +129,9 @@ class Storage:
         max_idx = max(values.keys())
         return [values.get(i, 0.0) for i in range(max_idx + 1)]
 
-    def _write_default_calibration(self, count):
+    def _write_default_calibration(self, count, serial=None):
         rows = [self._default_row(i) for i in range(count)]
-        self.write_calibration(rows)
+        self.write_calibration(rows, serial=serial)
 
     def _default_row(self, idx):
         return {"LoadCell": str(idx), "Offset": "0", "Gain": "1"}

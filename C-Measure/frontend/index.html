@@ -75,6 +75,7 @@
         </header>
 
         <section class="view is-active" id="view-home">
+          <div class="alert warning is-hidden" id="calibration-warning">Calibration data missing</div>
           <div class="grid-cards">
             <div class="card">
               <div class="card-title">Connected Sensors</div>
@@ -112,7 +113,7 @@
               </div>
             </div>
           </div>
-          <div class="card">
+          <div class="card" id="system-info-card">
             <div class="card-title">System Info</div>
             <div class="card-metric small" id="home-system-serial">System: -</div>
             <div class="card-foot" id="home-paired-serial">Paired: -</div>
@@ -130,7 +131,7 @@
               </label>
             </div>
             <div class="device-actions">
-              <button class="btn ghost" id="connect-btn">Connect</button>
+              <button class="btn connect-btn" id="connect-btn">Connect</button>
             </div>
             <div class="device-list" id="device-status-list"></div>
           </div>
@@ -160,13 +161,16 @@
 
           <div class="card" id="measurements-plot-card">
             <div class="card-title">Load Plot</div>
-            <div class="plot-wrap">
-              <svg id="load-plot" viewBox="0 0 620 240" aria-label="Load plot"></svg>
-              <div class="plot-legend">
-                <span class="legend-dot measure"></span>
-                <span>Live</span>
-                <span class="legend-dot saved"></span>
-                <span>Saved</span>
+            <div class="plot-grid">
+              <div class="status-dots" id="measurement-status-dots"></div>
+              <div class="plot-wrap">
+                <svg id="load-plot" viewBox="0 0 620 240" aria-label="Load plot"></svg>
+                <div class="plot-legend">
+                  <span class="legend-dot measure"></span>
+                  <span>Live</span>
+                  <span class="legend-dot saved"></span>
+                  <span>Saved</span>
+                </div>
               </div>
             </div>
           </div>
@@ -210,7 +214,6 @@
           <div class="card" id="report-plot-card">
             <div class="card-title">Comparison Plot</div>
             <div class="report-plot-grid">
-              <div class="status-dots" id="report-status-dots"></div>
               <div class="plot-wrap">
                 <svg id="report-plot" viewBox="0 0 620 240" aria-label="Comparison plot"></svg>
                 <div class="plot-legend">
@@ -319,6 +322,10 @@
                 <span class="field-label">Data directory</span>
                 <input class="field-input" id="settings-data-dir" />
               </label>
+              <label>
+                <span class="field-label">Plot max (X axis)</span>
+                <input class="field-input" id="settings-plot-max" type="number" min="0" step="0.1" placeholder="Auto" />
+              </label>
               <button class="btn" id="save-settings-btn">Save Settings</button>
             </div>
           </div>
@@ -331,6 +338,28 @@
     </div>
 
     <div class="toast" id="toast"></div>
+
+    <!-- Custom Prompt Dialog -->
+    <div class="modal-overlay" id="prompt-modal" style="display: none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 id="prompt-title">Enter Access Code</h3>
+        </div>
+        <div class="modal-body">
+          <input
+            type="text"
+            id="prompt-input"
+            class="modal-input"
+            placeholder="Enter code..."
+            autocomplete="off"
+          />
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="prompt-cancel">Cancel</button>
+          <button class="btn btn-primary" id="prompt-ok">OK</button>
+        </div>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

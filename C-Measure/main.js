@@ -1,6 +1,7 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const http = require('http');
 const path = require('path');
 
@@ -9,12 +10,35 @@ const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}/`;
 
 let backendProcess;
 
-function startBackend() {
+function resolveBackendCommand() {
+  const exeName = process.platform === 'win32' ? 'server.exe' : 'server';
+  if (app.isPackaged) {
+    const packagedExe = path.join(process.resourcesPath, 'backend', exeName);
+    if (fsSync.existsSync(packagedExe)) {
+      return { command: packagedExe, args: [] };
+    }
+  }
+  const localExe = path.join(__dirname, 'backend', exeName);
+  if (fsSync.existsSync(localExe)) {
+    return { command: localExe, args: [] };
+  }
   const python = process.env.CMEASURE_PYTHON || 'python';
   const script = path.join(__dirname, 'backend', 'server.py');
-  const uiDir = path.join(__dirname, 'frontend');
+  return { command: python, args: [script] };
+}
 
-  backendProcess = spawn(python, [script], {
+function resolveUiDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'frontend');
+  }
+  return path.join(__dirname, 'frontend');
+}
+
+function startBackend() {
+  const { command, args } = resolveBackendCommand();
+  const uiDir = resolveUiDir();
+
+  backendProcess = spawn(command, args, {
     env: {
       ...process.env,
       CMEASURE_PORT: BACKEND_PORT,
@@ -75,18 +99,40 @@ async function createWindow() {
       nodeIntegration: false,
     },
   });
+  win.setMenuBarVisibility(false);
+  win.setAutoHideMenuBar(true);
 
+  const uiDir = resolveUiDir();
   try {
+    console.log('[main] Waiting for backend...');
     await waitForBackend();
+    console.log('[main] Loading URL:', BACKEND_URL);
     await win.loadURL(BACKEND_URL);
+    console.log('[main] URL loaded successfully');
   } catch (error) {
-    await win.loadFile(path.join(__dirname, 'frontend', 'index.html'));
+    console.error('[main] Failed to load from backend:', error.message);
+    console.log('[main] Falling back to local file:', path.join(uiDir, 'index.html'));
+    await win.loadFile(path.join(uiDir, 'index.html'));
   }
 
-  win.once('ready-to-show', () => win.show());
+  win.webContents.on('did-finish-load', () => {
+    console.log('[main] Window did-finish-load event fired');
+    win.maximize();
+    win.show();
+  });
+
+  // Fallback: show window after 8 seconds if did-finish-load doesn't fire
+  setTimeout(() => {
+    if (!win.isVisible()) {
+      console.log('[main] Fallback: forcing window to show');
+      win.maximize();
+      win.show();
+    }
+  }, 8000);
 }
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   startBackend();
   createWindow();
 

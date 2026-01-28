@@ -7,8 +7,14 @@
   "scripts": {
     "start": "electron .",
     "start:backend": "python backend/server.py",
+    "build:backend": "pyinstaller --onefile --name server --distpath backend --paths backend --hidden-import phidget_service --hidden-import settings --hidden-import storage backend/server.py",
+    "prepack": "node scripts/check-backend.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "predist": "node scripts/check-backend.js",
+    "dist": "electron-builder",
+    "postdist": "node scripts/copy-driver.js"
+    ,
+    "build:installer": "npm run build:backend && npm run dist"
   },
   "devDependencies": {
     "electron": "^34.5.8",
@@ -33,6 +39,20 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "frontend",
+        "to": "frontend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "drivers",
+        "to": ".",
+        "filter": [
+          "Phidget22Drivers.exe"
+        ]
       }
     ],
     "win": {
@@ -44,7 +64,8 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
     }
   }
 }

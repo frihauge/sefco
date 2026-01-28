@@ -54,6 +54,7 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "simulate": self.server.service.simulate,
                 "statuses": statuses,
                 "bridge": bridge,
+                "calibrationMissing": self.server.storage.calibration_missing,
             })
         if route == "/api/measurements":
             values = self.server.service.get_measurements()
@@ -84,11 +85,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "dataDir": str(self.server.storage.data_dir),
                 "simulate": self.server.service.simulate,
+                "plotMaxX": load_settings().get("plotMaxX"),
             })
         if route == "/api/system":
             settings = load_settings()
             info = dict(self.server.system_info)
             info["wifiSsid"] = settings.get("wifiSsid")
+            info["lastCalibrationAt"] = self.server.storage.calibration_timestamp
             return self._send_json(info)
         if route == "/api/wifi/networks":
             items, code, output = list_wifi_networks()
@@ -194,12 +197,13 @@ class ApiHandler(BaseHTTPRequestHandler):
             settings = load_settings()
             serial = settings.get("systemSerial")
             self.server.service.update_calibration(rows, serial=serial)
-            self.server.update_pairing()
+            self.server.update_pairing(calibrated_at=self.server.storage.calibration_timestamp)
             return self._send_json({"calibration": self.server.service.calibration})
         if route == "/api/settings":
             payload = self._read_json()
             data_dir = payload.get("dataDir")
             simulate = payload.get("simulate")
+            plot_max_x = payload.get("plotMaxX") if isinstance(payload, dict) else None
             if data_dir:
                 self.server.storage.set_data_dir(data_dir)
                 self.server.service.storage = self.server.storage
@@ -209,10 +213,18 @@ class ApiHandler(BaseHTTPRequestHandler):
             settings = load_settings()
             settings["dataDir"] = str(self.server.storage.data_dir)
             settings["simulate"] = self.server.service.simulate
+            if plot_max_x is None or plot_max_x == "":
+                settings.pop("plotMaxX", None)
+            else:
+                try:
+                    settings["plotMaxX"] = float(plot_max_x)
+                except (TypeError, ValueError):
+                    settings.pop("plotMaxX", None)
             save_settings(settings)
             return self._send_json({
                 "dataDir": str(self.server.storage.data_dir),
                 "simulate": self.server.service.simulate,
+                "plotMaxX": settings.get("plotMaxX"),
             })
         if route == "/api/system/serial":
             payload = self._read_json()
@@ -223,6 +235,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             settings["systemSerial"] = str(serial)
             save_settings(settings)
             self.server.system_info["systemSerial"] = str(serial)
+            self.server.service.refresh_calibration()
             return self._send_json(self.server.system_info)
         if route == "/api/system/wifi":
             payload = self._read_json()
@@ -299,8 +312,8 @@ class CMeasureServer(ThreadingHTTPServer):
         self.ui_dir = ui_dir
         self.system_info = {}
 
-    def update_pairing(self):
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    def update_pairing(self, calibrated_at=None):
+        now = calibrated_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.system_info["pairedSerial"] = new_pairing_serial()
         self.system_info["lastCalibrationAt"] = now
         settings = load_settings()
@@ -449,6 +462,8 @@ def auto_connect_wifi(settings):
 
 def main():
     settings = load_settings()
+    system_info = ensure_system_info()
+    settings = load_settings()
     data_dir = os.getenv("CMEASURE_DATA_DIR") or settings.get("dataDir") or default_data_dir()
     simulate_env = os.getenv("CMEASURE_SIMULATE")
     simulate = settings.get("simulate")
@@ -465,7 +480,9 @@ def main():
     ui_dir = os.getenv("CMEASURE_UI_DIR") or str(Path(__file__).resolve().parent.parent / "frontend")
 
     server = CMeasureServer(("127.0.0.1", port), ApiHandler, storage, service, ui_dir)
-    server.system_info = ensure_system_info()
+    server.system_info = system_info
+    if storage.calibration_timestamp:
+        server.system_info["lastCalibrationAt"] = storage.calibration_timestamp
     threading.Thread(target=auto_connect_wifi, args=(settings,), daemon=True).start()
     print(f"C-Measure backend running on http://127.0.0.1:{port}")
     try:

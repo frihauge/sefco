@@ -12,6 +12,8 @@ try:
 except Exception:
     PHIDGET_AVAILABLE = False
 
+from settings import load_settings
+
 
 class PhidgetService:
     def __init__(self, storage, num_ports=6, num_channels=2, simulate=None):
@@ -23,7 +25,8 @@ class PhidgetService:
         self.values = [0.0 for _ in range(self.num_ids)]
         self.zero_offsets = [0.0 for _ in range(self.num_ids)]
         self.statuses = ["Disconnected" for _ in range(self.num_ids)]
-        self.calibration = self.storage.read_calibration(self.num_ids)
+        settings = load_settings()
+        self.calibration = self.storage.read_calibration(self.num_ids, serial=settings.get("systemSerial"))
         self.connected = False
         self.lock = threading.Lock()
         self._channels = []
@@ -139,7 +142,9 @@ class PhidgetService:
                 self.raw_values[idx] = float(sensor_value)
 
     def refresh_calibration(self):
-        self.calibration = self.storage.read_calibration(self.num_ids)
+        settings = load_settings()
+        self.calibration = self.storage.read_calibration(self.num_ids, serial=settings.get("systemSerial"))
+        return self.calibration
 
     def update_calibration(self, rows, serial=None):
         self.calibration = rows

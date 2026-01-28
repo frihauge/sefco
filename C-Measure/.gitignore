@@ -3,3 +3,17 @@ backend/data/
 backend/settings.json
 *.log
 .DS_Store
+
+# Build artifacts
+dist/
+backend/server.exe
+backend/server.spec
+backend/build/
+build/Phidget22Drivers.exe
+
+# Driver installers (too large for git)
+drivers/*.exe
+drivers/*.msi
+
+# Data files
+data/

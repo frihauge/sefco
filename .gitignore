@@ -1,0 +1,53 @@
+# Node modules
+node_modules/
+
+# Build artifacts and distributions
+dist/
+*/dist/
+build/
+*/build/
+*/Installer/Output/
+
+# Electron test installations
+electron-test/
+*/electron-test/
+
+# Python build artifacts
+*.pyc
+__pycache__/
+*.spec
+backend/server.exe
+*/backend/server.exe
+
+# Data and settings
+data/
+*/data/
+backend/data/
+*/backend/data/
+backend/settings.json
+*/backend/settings.json
+
+# Driver installers (too large for git)
+drivers/
+*/drivers/
+
+# Large binary files
+*.zip
+*/*.zip
+
+# IDE and temp files
+.DS_Store
+.vscode/
+.idea/
+.claude/
+*/.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test files
+test-*.js
+debug-*.js
+*/test-*.js
+*/debug-*.js

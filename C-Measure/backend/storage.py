@@ -1,7 +1,18 @@
 import csv
 import os
+import sys
 from pathlib import Path
 from datetime import datetime
+
+
+def get_app_dir():
+    """Get the application directory - works for both script and frozen exe."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe (PyInstaller)
+        return Path(sys.executable).resolve().parent
+    else:
+        # Running as script
+        return Path(__file__).resolve().parent
 
 class Storage:
     def __init__(self, data_dir):
@@ -155,4 +166,4 @@ def default_data_dir():
     env_dir = os.getenv("CMEASURE_DATA_DIR")
     if env_dir:
         return env_dir
-    return str(Path(__file__).resolve().parent / "data")
+    return str(get_app_dir() / "data")

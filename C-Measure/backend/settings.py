@@ -1,7 +1,19 @@
 import json
+import sys
 from pathlib import Path
 
-SETTINGS_FILE = Path(__file__).resolve().parent / "settings.json"
+
+def get_app_dir():
+    """Get the application directory - works for both script and frozen exe."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe (PyInstaller)
+        return Path(sys.executable).resolve().parent
+    else:
+        # Running as script
+        return Path(__file__).resolve().parent
+
+
+SETTINGS_FILE = get_app_dir() / "settings.json"
 
 
 def load_settings():

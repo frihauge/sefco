@@ -9,21 +9,50 @@ const BACKEND_PORT = process.env.CMEASURE_PORT || '8123';
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}/`;
 
 let backendProcess;
+let backendError = null;
+let backendStarted = false;
 
 function resolveBackendCommand() {
   const exeName = process.platform === 'win32' ? 'server.exe' : 'server';
+  const searchPaths = [];
+
+  console.log('[main] Resolving backend command...');
+  console.log('[main] app.isPackaged:', app.isPackaged);
+  console.log('[main] process.resourcesPath:', process.resourcesPath);
+  console.log('[main] __dirname:', __dirname);
+
   if (app.isPackaged) {
-    const packagedExe = path.join(process.resourcesPath, 'backend', exeName);
-    if (fsSync.existsSync(packagedExe)) {
-      return { command: packagedExe, args: [] };
+    // Try multiple possible paths in packaged app
+    const possiblePaths = [
+      path.join(process.resourcesPath, 'backend', exeName),
+      path.join(process.resourcesPath, 'app.asar.unpacked', 'backend', exeName),
+      path.join(process.resourcesPath, exeName),
+    ];
+
+    for (const p of possiblePaths) {
+      searchPaths.push(p);
+      console.log('[main] Checking packaged path:', p, '- exists:', fsSync.existsSync(p));
+      if (fsSync.existsSync(p)) {
+        console.log('[main] Found backend at:', p);
+        return { command: p, args: [] };
+      }
     }
   }
+
   const localExe = path.join(__dirname, 'backend', exeName);
+  searchPaths.push(localExe);
+  console.log('[main] Checking local path:', localExe, '- exists:', fsSync.existsSync(localExe));
   if (fsSync.existsSync(localExe)) {
     return { command: localExe, args: [] };
   }
+
   const python = process.env.CMEASURE_PYTHON || 'python';
   const script = path.join(__dirname, 'backend', 'server.py');
+  console.log('[main] Falling back to Python:', python, script);
+
+  // Store searched paths for error message
+  backendError = `Backend not found. Searched paths:\n${searchPaths.join('\n')}`;
+
   return { command: python, args: [script] };
 }
 
@@ -38,26 +67,47 @@ function startBackend() {
   const { command, args } = resolveBackendCommand();
   const uiDir = resolveUiDir();
 
-  backendProcess = spawn(command, args, {
-    env: {
-      ...process.env,
-      CMEASURE_PORT: BACKEND_PORT,
-      CMEASURE_UI_DIR: uiDir,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  console.log('[main] Starting backend:', command, args.join(' '));
+  console.log('[main] Backend exists:', fsSync.existsSync(command));
 
-  backendProcess.stdout.on('data', (data) => {
-    console.log(`[backend] ${data.toString().trim()}`);
-  });
+  try {
+    backendProcess = spawn(command, args, {
+      env: {
+        ...process.env,
+        CMEASURE_PORT: BACKEND_PORT,
+        CMEASURE_UI_DIR: uiDir,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-  backendProcess.stderr.on('data', (data) => {
-    console.error(`[backend] ${data.toString().trim()}`);
-  });
+    backendProcess.stdout.on('data', (data) => {
+      console.log(`[backend] ${data.toString().trim()}`);
+      backendStarted = true;
+    });
 
-  backendProcess.on('exit', (code) => {
-    console.log(`[backend] exited with code ${code}`);
-  });
+    backendProcess.stderr.on('data', (data) => {
+      const msg = data.toString().trim();
+      console.error(`[backend stderr] ${msg}`);
+      if (!backendStarted) {
+        backendError = msg;
+      }
+    });
+
+    backendProcess.on('error', (err) => {
+      console.error('[backend] Failed to start:', err.message);
+      backendError = `Failed to start backend: ${err.message}`;
+    });
+
+    backendProcess.on('exit', (code, signal) => {
+      console.log(`[backend] exited with code ${code}, signal ${signal}`);
+      if (code !== 0 && code !== null && !backendStarted) {
+        backendError = `Backend exited with code ${code}. This may indicate missing Visual C++ Redistributable or other dependencies.`;
+      }
+    });
+  } catch (err) {
+    console.error('[main] Exception starting backend:', err);
+    backendError = `Exception starting backend: ${err.message}`;
+  }
 }
 
 function waitForBackend(retries = 40, delayMs = 300) {
@@ -111,8 +161,23 @@ async function createWindow() {
     console.log('[main] URL loaded successfully');
   } catch (error) {
     console.error('[main] Failed to load from backend:', error.message);
-    console.log('[main] Falling back to local file:', path.join(uiDir, 'index.html'));
-    await win.loadFile(path.join(uiDir, 'index.html'));
+    console.error('[main] Backend error:', backendError);
+
+    // Show error dialog to user
+    const errorMessage = backendError || error.message;
+    dialog.showErrorBox(
+      'C-Measure Backend Error',
+      `Could not start the backend server.\n\n` +
+      `Error: ${errorMessage}\n\n` +
+      `Possible solutions:\n` +
+      `1. Install Microsoft Visual C++ Redistributable 2015-2022\n` +
+      `   (Download from microsoft.com/download)\n` +
+      `2. Install Phidget22 drivers\n` +
+      `3. Check the log file: cmeasure.log\n\n` +
+      `The application will now close.`
+    );
+    app.quit();
+    return;
   }
 
   win.webContents.on('did-finish-load', () => {

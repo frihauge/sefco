@@ -14,6 +14,23 @@ def get_app_dir():
         # Running as script
         return Path(__file__).resolve().parent
 
+
+def get_data_dir():
+    """Get writable data directory - uses AppData on Windows when installed."""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled exe - use AppData for writable storage
+        if sys.platform == 'win32':
+            appdata = os.environ.get('APPDATA', '')
+            if appdata:
+                data_dir = Path(appdata) / 'C-Measure'
+                data_dir.mkdir(parents=True, exist_ok=True)
+                return data_dir
+        # Fallback to exe directory
+        return get_app_dir()
+    else:
+        # Running as script - use script directory
+        return Path(__file__).resolve().parent
+
 class Storage:
     def __init__(self, data_dir):
         self.calibration_missing = True
@@ -166,4 +183,4 @@ def default_data_dir():
     env_dir = os.getenv("CMEASURE_DATA_DIR")
     if env_dir:
         return env_dir
-    return str(get_app_dir() / "data")
+    return str(get_data_dir() / "data")

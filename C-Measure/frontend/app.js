@@ -693,9 +693,51 @@ function canCompareSavedTests() {
   return Boolean(elements.reportSelectA?.value && elements.reportSelectB?.value);
 }
 
+function hasSingleSavedTest() {
+  const a = elements.reportSelectA?.value;
+  const b = elements.reportSelectB?.value;
+  return (a && !b) || (!a && b);
+}
+
+async function showSingleReport() {
+  const selectedA = elements.reportSelectA?.value;
+  const selectedB = elements.reportSelectB?.value;
+  const selected = selectedA || selectedB;
+  const side = selectedA ? 'A' : 'B';
+
+  if (!selected) {
+    return;
+  }
+
+  const result = await safeRequest(() => apiRequest('/api/reports/single', {
+    method: 'POST',
+    body: JSON.stringify({ file: selected }),
+  }));
+
+  if (!result) {
+    return;
+  }
+
+  const values = result.values || [];
+  const color = side === 'A' ? '#f04d4d' : '#2f7de1';
+  renderAreaPlot(elements.reportPlot, [values], [color], buildHeightLabels(values.length));
+
+  // Update table with single test data
+  const label = getBaseName(selected) || 'Test';
+  if (side === 'A') {
+    setReportData(values, [], label, '-');
+  } else {
+    setReportData([], values, '-', label);
+  }
+
+  showToast(`Showing: ${getBaseName(selected)}`);
+}
+
 function maybeAutoCompareReports() {
   if (canCompareLocalFiles() || canCompareSavedTests()) {
     compareReports();
+  } else if (hasSingleSavedTest()) {
+    showSingleReport();
   }
 }
 

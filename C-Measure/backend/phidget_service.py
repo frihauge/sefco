@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import socket
@@ -5,12 +6,16 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+logger = logging.getLogger('CMeasure.Phidget')
+
 try:
     from Phidget22.Devices.VoltageRatioInput import VoltageRatioInput
     from Phidget22.Net import Net, PhidgetServerType
     PHIDGET_AVAILABLE = True
-except Exception:
+    logger.info("Phidget22 library loaded successfully")
+except Exception as e:
     PHIDGET_AVAILABLE = False
+    logger.warning(f"Phidget22 library not available: {e}")
 
 from settings import load_settings
 
@@ -40,6 +45,13 @@ class PhidgetService:
         self._remote_port = int(os.getenv("CMEASURE_PHIDGET_PORT", "5661"))
         self._remote_password = os.getenv("CMEASURE_PHIDGET_PASSWORD", "")
         self._remote_name = os.getenv("CMEASURE_PHIDGET_SERVER_NAME", "cmeasure-bridge")
+
+        logger.info(f"PhidgetService initialized:")
+        logger.info(f"  - Remote host: {self._remote_host}")
+        logger.info(f"  - Remote port: {self._remote_port}")
+        logger.info(f"  - Num ports: {num_ports}, Num channels: {num_channels}")
+        logger.info(f"  - Total sensors: {self.num_ids}")
+        logger.info(f"  - Phidget available: {PHIDGET_AVAILABLE}")
         self._bridge_status = {
             "reachable": None,
             "error": None,
@@ -64,7 +76,10 @@ class PhidgetService:
         return self._simulate
 
     def connect(self, use_remote=True):
+        logger.info(f"Connect called (use_remote={use_remote}, simulate={self._simulate})")
+
         if self._simulate:
+            logger.info("Running in simulation mode - setting all connected")
             with self.lock:
                 self.statuses = ["Connected" for _ in range(self.num_ids)]
                 self.connected = True
@@ -74,10 +89,16 @@ class PhidgetService:
             fully_connected = self.connected and all(status == "Connected" for status in self.statuses)
 
         with self._connect_lock:
-            if self._connecting or fully_connected:
+            if self._connecting:
+                logger.debug("Already connecting, skipping")
+                return
+            if fully_connected:
+                logger.debug("Already fully connected, skipping")
                 return
             self._connecting = True
             self._connect_cancel.clear()
+
+        logger.info(f"Starting connection to {self._remote_host}:{self._remote_port}")
 
         with self.lock:
             self.statuses = ["Connecting" for _ in range(self.num_ids)]
@@ -128,7 +149,7 @@ class PhidgetService:
         idx = getattr(ph, "channelIndex", None)
         if idx is None:
             return
-        print(f"[PhidgetService] Channel {idx} error: {description} (code {code})")
+        logger.error(f"Channel {idx} ERROR: {description} (code {code})")
         with self.lock:
             if 0 <= idx < self.num_ids:
                 self.statuses[idx] = "Disconnected"
@@ -280,11 +301,15 @@ class PhidgetService:
         host = self._remote_host
         port = self._remote_port
         if not host:
+            logger.warning("No host configured for bridge probe")
             return False, "No host configured"
+        logger.debug(f"Probing bridge at {host}:{port} (timeout={self._bridge_timeout}s)")
         try:
             with socket.create_connection((host, port), timeout=self._bridge_timeout):
+                logger.debug(f"Bridge probe successful: {host}:{port}")
                 return True, None
         except Exception as e:
+            logger.warning(f"Bridge probe failed: {host}:{port} - {e}")
             return False, str(e)
 
     def _close_channels(self):
@@ -298,12 +323,14 @@ class PhidgetService:
                 continue
 
     def _connect_worker(self, use_remote=True):
+        logger.info(f"Connect worker started (use_remote={use_remote})")
         try:
             self._close_channels()
 
             if use_remote:
                 if not self._remote_server_added:
                     try:
+                        logger.info(f"Adding remote server: {self._remote_name} @ {self._remote_host}:{self._remote_port}")
                         Net.addServer(
                             self._remote_name,
                             self._remote_host,
@@ -311,17 +338,18 @@ class PhidgetService:
                             self._remote_password,
                             0,
                         )
-                        print(f"[PhidgetService] Remote server added: {self._remote_host}:{self._remote_port}")
+                        logger.info(f"Remote server added successfully: {self._remote_host}:{self._remote_port}")
                         self._remote_server_added = True
                     except Exception as e:
-                        print(f"[PhidgetService] Remote server add failed: {e}")
+                        logger.error(f"Remote server add FAILED: {e}")
                 if not self._server_discovery_enabled:
                     try:
+                        logger.debug("Enabling server discovery...")
                         Net.enableServerDiscovery(PhidgetServerType.PHIDGETSERVER_DEVICEREMOTE)
-                        print("[PhidgetService] Server discovery enabled for remote devices")
+                        logger.info("Server discovery enabled for remote devices")
                         self._server_discovery_enabled = True
                     except Exception as e:
-                        print(f"[PhidgetService] Server discovery failed: {e}")
+                        logger.error(f"Server discovery FAILED: {e}")
 
             tasks = []
             index = -1
@@ -329,6 +357,7 @@ class PhidgetService:
             def open_channel(idx, port, channel):
                 if self._connect_cancel.is_set():
                     return
+                logger.debug(f"Opening channel {idx} (port={port}, channel={channel})")
                 ph = VoltageRatioInput()
                 ph.setHubPort(port)
                 ph.setIsHubPortDevice(0)
@@ -342,6 +371,7 @@ class PhidgetService:
                 with self.lock:
                     self.statuses[idx] = "Connecting"
                 try:
+                    logger.debug(f"Channel {idx}: waiting for attachment (timeout=2000ms)...")
                     ph.openWaitForAttachment(2000)
                     if self._connect_cancel.is_set():
                         try:
@@ -353,8 +383,9 @@ class PhidgetService:
                         self._channels.append(ph)
                         if self.statuses[idx] == "Connecting":
                             self.statuses[idx] = "Connected"
+                    logger.info(f"Channel {idx} CONNECTED (port={port}, channel={channel})")
                 except Exception as e:
-                    print(f"[PhidgetService] Channel {idx} error: {e}")
+                    logger.error(f"Channel {idx} FAILED (port={port}, channel={channel}): {e}")
                     with self.lock:
                         self.statuses[idx] = "Disconnected"
                     try:
@@ -376,7 +407,10 @@ class PhidgetService:
         finally:
             with self.lock:
                 self.connected = any(status == "Connected" for status in self.statuses)
+                connected_count = sum(1 for s in self.statuses if s == "Connected")
                 if self._connect_cancel.is_set() and not self.connected:
                     self.statuses = ["Disconnected" for _ in range(self.num_ids)]
             with self._connect_lock:
                 self._connecting = False
+            logger.info(f"Connect worker finished: {connected_count}/{self.num_ids} channels connected")
+            logger.debug(f"Final statuses: {self.statuses}")

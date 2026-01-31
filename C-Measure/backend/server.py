@@ -1,8 +1,10 @@
 import json
+import logging
 import mimetypes
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import uuid
@@ -13,8 +15,12 @@ from urllib.parse import urlparse
 from xml.sax.saxutils import escape as xml_escape
 
 from phidget_service import PhidgetService
-from settings import load_settings, save_settings
+from settings import load_settings, save_settings, get_data_dir
 from storage import Storage, default_data_dir
+
+# Minimal logging - only errors to console
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger('CMeasure')
 
 
 class ApiHandler(BaseHTTPRequestHandler):
@@ -102,8 +108,11 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def _handle_api_post(self):
         route = urlparse(self.path).path
+        logger.debug(f"POST request: {route}")
         if route == "/api/connect":
+            logger.info("Connect request received")
             self.server.service.connect()
+            logger.info(f"Connect result: connected={self.server.service.connected}")
             return self._send_json({
                 "connected": self.server.service.connected,
                 "statuses": self.server.service.get_statuses(),
@@ -133,6 +142,16 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "heightsCm": heights,
                 "valuesA": data_a,
                 "valuesB": data_b,
+            })
+        if route == "/api/reports/single":
+            payload = self._read_json()
+            file_name = payload.get("file")
+            data = self.server.storage.read_measurement(file_name) if file_name else []
+            heights = [15 * (i + 1) for i in range(len(data))]
+            return self._send_json({
+                "file": file_name,
+                "heightsCm": heights,
+                "values": data,
             })
         if route == "/api/zero":
             self.server.service.zero_set()
@@ -461,6 +480,10 @@ def auto_connect_wifi(settings):
 
 
 def main():
+    logger.info("=" * 60)
+    logger.info("C-Measure Backend Starting")
+    logger.info("=" * 60)
+
     settings = load_settings()
     system_info = ensure_system_info()
     settings = load_settings()
@@ -470,10 +493,15 @@ def main():
     if simulate_env is not None:
         simulate = simulate_env.lower() in ("1", "true", "yes")
 
+    logger.info(f"Data directory: {data_dir}")
+    logger.info(f"Simulation mode: {simulate}")
+
     storage = Storage(data_dir)
     # Default: 6 ports x 2 channels = 12 sensors (same as WrapView)
     num_ports = int(settings.get("numPorts", 6))
     num_channels = int(settings.get("numChannels", 2))
+    logger.info(f"Ports: {num_ports}, Channels per port: {num_channels}")
+
     service = PhidgetService(storage, num_ports=num_ports, num_channels=num_channels, simulate=simulate)
 
     port = int(os.getenv("CMEASURE_PORT", "8123"))
@@ -484,12 +512,14 @@ def main():
     if storage.calibration_timestamp:
         server.system_info["lastCalibrationAt"] = storage.calibration_timestamp
     threading.Thread(target=auto_connect_wifi, args=(settings,), daemon=True).start()
+    logger.info(f"C-Measure backend running on http://127.0.0.1:{port}")
     print(f"C-Measure backend running on http://127.0.0.1:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        logger.info("Shutting down (keyboard interrupt)")
     finally:
+        logger.info("Server shutdown")
         server.shutdown()
 
 

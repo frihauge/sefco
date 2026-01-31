@@ -29,7 +29,9 @@
     "files": [
       "main.js",
       "preload.js",
-      "frontend/**/*",
+      "frontend/**/*"
+    ],
+    "asarUnpack": [
       "backend/**/*"
     ],
     "extraResources": [

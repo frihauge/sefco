@@ -785,6 +785,17 @@ h1 {
   color: var(--subtle);
 }
 
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.toggle-row .field-label {
+  min-width: 120px;
+}
+
 .system-list {
   display: grid;
   gap: 8px;

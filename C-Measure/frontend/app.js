@@ -106,6 +106,8 @@ const elements = {
   calGainWeight: document.getElementById('cal-gain-weight'),
   settingsDataDir: document.getElementById('settings-data-dir'),
   settingsPlotMax: document.getElementById('settings-plot-max'),
+  settingsSimulate: document.getElementById('settings-simulate'),
+  settingsSimulateLabel: document.getElementById('settings-simulate-label'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   systemInfo: document.getElementById('system-info'),
   toast: document.getElementById('toast'),
@@ -538,6 +540,21 @@ function renderAreaPlot(svg, series, colors, labels) {
     });
   }
 
+  // X-axis labels (daN)
+  const xLabelCount = 5;
+  for (let i = 0; i <= xLabelCount; i += 1) {
+    const xVal = (maxVal / xLabelCount) * i;
+    const x = left + (i * plotWidth) / xLabelCount;
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', x);
+    text.setAttribute('y', height - 4);
+    text.setAttribute('fill', '#6b7c93');
+    text.setAttribute('font-size', '10');
+    text.setAttribute('text-anchor', 'middle');
+    text.textContent = `${Math.round(xVal)} daN`;
+    svg.appendChild(text);
+  }
+
   series.forEach((values, idx) => {
     if (values.length === 0) {
       return;
@@ -861,7 +878,10 @@ async function refreshMeasurements() {
   }
   renderMeasurementsTable(data.measurements);
   updateRawToggle();
-  const values = data.measurements.map((m) => m.value);
+  // Use 0 for disconnected sensors instead of stale values
+  const values = data.measurements.map((m) =>
+    normalizeStatus(m.status) === 'Connected' ? m.value : 0
+  );
   renderMeasurementPlot(values);
   scheduleMeasurementDotsLayout();
 }
@@ -971,8 +991,15 @@ async function refreshSettings() {
   if (elements.settingsPlotMax) {
     elements.settingsPlotMax.value = state.plotMaxX ?? elements.settingsPlotMax.value ?? '';
   }
+  if (elements.settingsSimulate) {
+    elements.settingsSimulate.checked = Boolean(settings.simulate);
+  }
+  if (elements.settingsSimulateLabel) {
+    elements.settingsSimulateLabel.textContent = settings.simulate ? 'On' : 'Off';
+  }
   elements.homeDataDir.textContent = settings.dataDir || 'backend/data';
   elements.systemInfo.innerHTML = `
+    <div>Version: 1.0.0</div>
     <div>Backend: ${settings.simulate ? 'Simulation' : 'Live'}</div>
     <div>Data folder: ${settings.dataDir}</div>
   `;
@@ -1215,18 +1242,26 @@ async function saveSettings() {
   if (elements.settingsPlotMax) {
     elements.settingsPlotMax.value = state.plotMaxX ?? '';
   }
+  const simulate = elements.settingsSimulate ? elements.settingsSimulate.checked : false;
   const result = await safeRequest(() => apiRequest('/api/settings', {
     method: 'PUT',
     body: JSON.stringify({
       dataDir: elements.settingsDataDir.value,
       plotMaxX: Number.isFinite(maxValue) && maxValue > 0 ? maxValue : null,
+      simulate: simulate,
     }),
   }), 'Failed to save settings');
   if (result) {
-    showToast('Settings saved');
+    showToast('Settings saved - restart app for simulation change');
     await refreshSettings();
     refreshMeasurements();
     maybeAutoCompareReports();
+  }
+}
+
+function updateSimulateToggleLabel() {
+  if (elements.settingsSimulateLabel && elements.settingsSimulate) {
+    elements.settingsSimulateLabel.textContent = elements.settingsSimulate.checked ? 'On' : 'Off';
   }
 }
 
@@ -1594,6 +1629,9 @@ function wireEvents() {
   elements.pdfBtn.addEventListener('click', generatePdf);
   elements.saveCalibrationBtn.addEventListener('click', saveCalibration);
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
+  if (elements.settingsSimulate) {
+    elements.settingsSimulate.addEventListener('change', updateSimulateToggleLabel);
+  }
 }
 
 async function init() {

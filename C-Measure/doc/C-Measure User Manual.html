@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<!-- saved from url=(0080)file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html -->
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C-Measure User Manual</title>
+<style>
+  @page { margin: 20mm 18mm; size: A4; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #1a2a3a;
+    line-height: 1.65;
+    background: #f4f6f9;
+    padding: 0;
+  }
+  .cover {
+    background: linear-gradient(135deg, #1b3a6b 0%, #2956a8 100%);
+    color: #fff;
+    padding: 80px 60px;
+    text-align: center;
+    page-break-after: always;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+  .cover h1 { font-size: 52px; font-weight: 700; letter-spacing: -1px; margin-bottom: 8px; }
+  .cover .subtitle { font-size: 22px; opacity: 0.85; margin-bottom: 40px; }
+  .cover .version { font-size: 16px; opacity: 0.6; margin-bottom: 60px; }
+  .cover .logo-icon {
+    width: 100px; height: 100px; border-radius: 20px;
+    background: rgba(255,255,255,0.15); margin-bottom: 40px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 48px; font-weight: 700;
+  }
+  .cover .footer { font-size: 13px; opacity: 0.5; margin-top: 60px; }
+  .content { max-width: 800px; margin: 0 auto; padding: 40px 40px 80px; background: #fff; min-height: 100vh; }
+  @media print {
+    body { background: #fff; }
+    .content { padding: 0; box-shadow: none; }
+  }
+  h1 { font-size: 32px; color: #1b3a6b; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 3px solid #2956a8; }
+  h2 { font-size: 24px; color: #1b3a6b; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #e0e6ef; }
+  h3 { font-size: 18px; color: #2956a8; margin: 28px 0 8px; }
+  h4 { font-size: 15px; color: #3a6bc5; margin: 20px 0 6px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0 10px 28px; }
+  li { margin: 4px 0; }
+  strong { color: #1b3a6b; }
+  code {
+    background: #eef2f8; padding: 2px 7px; border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; color: #2956a8;
+  }
+  blockquote {
+    border-left: 4px solid #f26a4b; background: #fef6f4; padding: 14px 18px;
+    margin: 16px 0; border-radius: 0 8px 8px 0; font-size: 14px;
+  }
+  blockquote strong { color: #c0392b; }
+  .toc { background: #f8fafc; border: 1px solid #e0e6ef; border-radius: 10px; padding: 24px 32px; margin: 24px 0; }
+  .toc h2 { border: none; margin-top: 0; font-size: 20px; }
+  .toc ol { margin-left: 20px; }
+  .toc li { margin: 6px 0; }
+  .toc a { color: #2956a8; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  table {
+    border-collapse: collapse; width: 100%; margin: 16px 0;
+    font-size: 14px;
+  }
+  th, td { border: 1px solid #dde3ed; padding: 10px 14px; text-align: left; }
+  th { background: #f0f4fa; color: #1b3a6b; font-weight: 600; }
+  tr:nth-child(even) { background: #fafbfd; }
+  .warning-box {
+    background: #fff8e1; border: 1px solid #ffe082; border-left: 4px solid #ffa000;
+    padding: 14px 18px; margin: 16px 0; border-radius: 0 8px 8px 0; font-size: 14px;
+  }
+  .info-box {
+    background: #e8f4fd; border: 1px solid #b3daf5; border-left: 4px solid #2196f3;
+    padding: 14px 18px; margin: 16px 0; border-radius: 0 8px 8px 0; font-size: 14px;
+  }
+  .step-box {
+    background: #f0f7f0; border: 1px solid #c8e6c9; border-radius: 8px;
+    padding: 18px 22px; margin: 12px 0;
+  }
+  .step-box h4 { color: #2e7d32; margin-top: 0; }
+  hr { border: none; border-top: 1px solid #e0e6ef; margin: 32px 0; }
+  .page-break { page-break-before: always; }
+  .section-num { color: #2956a8; margin-right: 6px; }
+  .footer-bar {
+    text-align: center; color: #9aa7bd; font-size: 12px;
+    padding: 40px 0 20px; border-top: 1px solid #e0e6ef; margin-top: 48px;
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER PAGE -->
+<div class="cover">
+  <h1>C-Measure</h1>
+  <div class="subtitle">Stretch Film Measure System</div>
+  <div class="version">User Manual — Version 1.0.0</div>
+  <div class="footer">SEFCO • 2026<br>Developed by Frihauge IT — Esben Frihauge — 02/2026</div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#overview">Overview</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#installation">Installation</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#getting-started">Getting Started</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#home">Home Page</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#measurements">Measurements</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#reports">Reports</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#calibration">Calibration</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#settings">Settings</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#moving">Moving the System to Another PC</a></li>
+    <li><a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#troubleshooting">Troubleshooting</a></li>
+  </ol>
+</div>
+
+<!-- 1. OVERVIEW -->
+<h1 id="overview"><span class="section-num">1.</span> Overview</h1>
+<p>C-Measure is a desktop application for measuring stretch film tension using Phidget load cell sensors. The system consists of <strong>12 sensors</strong> (6 ports × 2 channels) mounted at heights from <strong>15 cm to 180 cm</strong>, measuring force in <strong>Deka Newton (daN)</strong>.</p>
+<p>The application has a Python backend that communicates with the Phidget hardware and an Electron-based frontend for the user interface.</p>
+
+<!-- 2. INSTALLATION -->
+<h1 id="installation" class="page-break"><span class="section-num">2.</span> Installation</h1>
+
+<h3>Requirements</h3>
+<ul>
+  <li>Windows 10 or later</li>
+  <li>Phidget22 drivers (the installer will prompt you to install these)</li>
+  <li>Microsoft Visual C++ Redistributable 2015–2022 (required for the backend)</li>
+</ul>
+
+<h3>Install Steps</h3>
+<ol>
+  <li>Run the <strong>C-Measure Setup</strong> installer (.exe)</li>
+  <li>When prompted, install the <strong>Phidget22 drivers</strong> (required for sensor communication)</li>
+  <li>Choose the installation directory and complete the installation</li>
+  <li>Launch C-Measure from the Start Menu or desktop shortcut</li>
+</ol>
+
+<h3>First Launch</h3>
+<p>On first launch, the application will:</p>
+<ul>
+  <li>Start the backend server automatically</li>
+  <li>Show the Home page with connection status</li>
+  <li>Display a calibration warning if no calibration file is found</li>
+</ul>
+
+<div class="warning-box">
+  <strong>Important:</strong> If you see a “Backend Error” on first launch, ensure that Visual C++ Redistributable is installed. Download it from <a href="https://aka.ms/vs/17/release/vc_redist.x86.exe">microsoft.com/download</a>.
+</div>
+
+<!-- 3. GETTING STARTED -->
+<h1 id="getting-started"><span class="section-num">3.</span> Getting Started</h1>
+
+<h3>Connecting to the Sensor Hub</h3>
+<ol>
+  <li>Ensure the Phidget VINT Hub is connected and powered on</li>
+  <li>The status bar at the bottom-left shows:
+    <ul>
+      <li><strong>C-Measure: active</strong> — Hub is reachable</li>
+      <li><strong>C-Measure: offline</strong> — Hub is not reachable</li>
+      <li><strong>C-Measure: simulation</strong> — Running in simulation mode</li>
+    </ul>
+  </li>
+  <li>If the hub is offline, click <strong>Connect WiFi</strong> on the Home page to configure the network connection</li>
+  <li>The connection status shows how many sensors are connected (e.g., “10/12 connected”)</li>
+</ol>
+
+<h3>Navigation</h3>
+<p>The sidebar on the left provides access to:</p>
+<ul>
+  <li><strong>Home</strong> — System overview and connection status</li>
+  <li><strong>Measurements</strong> — Live sensor readings and plot</li>
+  <li><strong>Reports</strong> — Compare saved measurements</li>
+  <li><strong>Settings</strong> — Application configuration</li>
+</ul>
+
+<!-- 4. HOME PAGE -->
+<h1 id="home"><span class="section-num">4.</span> Home Page</h1>
+<p>The Home page displays:</p>
+<ul>
+  <li><strong>Connection status</strong> — Number of connected sensors</li>
+  <li><strong>Hub status</strong> — Whether the Phidget hub is reachable</li>
+  <li><strong>System info</strong> — System serial number, paired serial, and last calibration date</li>
+  <li><strong>Last test</strong> — Name of the most recently saved measurement</li>
+  <li><strong>Data directory</strong> — Where measurement and calibration files are stored</li>
+</ul>
+
+<h3>Calibration Warning</h3>
+<p>If no calibration file is found for the current system serial, a warning banner is displayed. See <a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#calibration">Section 7: Calibration</a> for how to resolve this.</p>
+
+<h3>WiFi Configuration</h3>
+<p>If the hub is offline, you can:</p>
+<ol>
+  <li>Click <strong>Connect WiFi</strong> to expand the WiFi panel</li>
+  <li>Select a network from the dropdown</li>
+  <li>Enter the password</li>
+  <li>Click <strong>Connect</strong></li>
+</ol>
+
+<!-- 5. MEASUREMENTS -->
+<h1 id="measurements" class="page-break"><span class="section-num">5.</span> Measurements</h1>
+
+<h3>Viewing Measurements</h3>
+<p>Switch between two views using the <strong>Table</strong> / <strong>Plot</strong> toggle:</p>
+<ul>
+  <li><strong>Table view</strong> — Shows each sensor’s status (Connected/Disconnected) and current value</li>
+  <li><strong>Plot view</strong> — Shows a horizontal area chart with:
+    <ul>
+      <li>Y-axis: sensor height (15&nbsp;cm to 180&nbsp;cm)</li>
+      <li>X-axis: force in daN (Deka Newton)</li>
+      <li>Colored dots on the left indicating sensor status (green&nbsp;=&nbsp;connected, yellow&nbsp;=&nbsp;disconnected)</li>
+    </ul>
+  </li>
+</ul>
+
+<div class="info-box">
+  <strong>Note:</strong> Disconnected sensors display a value of 0 daN.
+</div>
+
+<h3>Continuous Measurement</h3>
+<ol>
+  <li>Toggle <strong>Measure ON/OFF</strong> in the top bar to start/stop continuous measurement</li>
+  <li>When ON, the display updates every 1.2 seconds</li>
+</ol>
+
+<h3>Saving a Measurement</h3>
+<ol>
+  <li>(Optional) Enter a name in the <strong>Measurement name</strong> field</li>
+  <li>Click <strong>Store Measurement</strong></li>
+  <li>The saved measurement appears as a gray “Saved” overlay on the plot</li>
+  <li>Click <strong>Clear</strong> to remove the saved overlay</li>
+</ol>
+
+<h3>Zero Set</h3>
+<p>Click the <strong>Zero</strong> button to zero all sensors. This compensates for any baseline offset.</p>
+
+<!-- 6. REPORTS -->
+<h1 id="reports"><span class="section-num">6.</span> Reports</h1>
+<p>Reports allow you to view and compare saved measurements.</p>
+
+<h3>Viewing a Single Test</h3>
+<ol>
+  <li>Select a saved test from either dropdown (A or B)</li>
+  <li>The plot and table automatically display the selected test</li>
+</ol>
+
+<h3>Comparing Two Tests</h3>
+<ol>
+  <li>Select <strong>Test A</strong> from the first dropdown</li>
+  <li>Select <strong>Test B</strong> from the second dropdown</li>
+  <li>The comparison plot shows both tests:
+    <ul>
+      <li><strong style="color:#f04d4d;">Red</strong> = Test A</li>
+      <li><strong style="color:#2f7de1;">Blue</strong> = Test B</li>
+    </ul>
+  </li>
+  <li>The table shows values side by side</li>
+</ol>
+
+<h3>Loading Files from Disk</h3>
+<p>Use the <strong>Browse</strong> buttons to load CSV files from disk for comparison.</p>
+
+<h3>Exporting to PDF</h3>
+<p>Click the <strong>PDF</strong> button to export the current report view to a PDF file.</p>
+
+<!-- 7. CALIBRATION -->
+<h1 id="calibration" class="page-break"><span class="section-num">7.</span> Calibration</h1>
+<p>Calibration is essential for accurate measurements. The calibration data is stored in a CSV file specific to each system’s serial number.</p>
+
+<h3>Accessing the Calibration Page</h3>
+<p>The Calibration page is <strong>hidden by default</strong> to prevent accidental changes.</p>
+
+<div class="step-box">
+  <h4>To unlock calibration:</h4>
+  <ol>
+    <li>Click the <strong>C-Measure</strong> logo/title in the sidebar <strong>10 times</strong></li>
+    <li>A prompt will appear asking for an access code</li>
+    <li>Enter: <code>cal</code> and press OK</li>
+    <li>The Calibration page will appear in the navigation</li>
+  </ol>
+</div>
+
+<h3>Calibration Procedure</h3>
+
+<div class="step-box">
+  <h4>Step 1: Zero (Set Offsets)</h4>
+  <ol>
+    <li>Ensure all sensors are <strong>unloaded</strong> (no weight applied)</li>
+    <li>Click the <strong>Zero</strong> button</li>
+    <li>All offset values will be recorded</li>
+    <li>Offset fields will be highlighted to indicate they are set</li>
+  </ol>
+</div>
+
+<div class="step-box">
+  <h4>Step 2: Set Gain (for each sensor)</h4>
+  <ol>
+    <li>Enter the known reference weight in the <strong>Gain weight</strong> field (in daN)</li>
+    <li>Apply the reference weight to <strong>sensor 1</strong></li>
+    <li>Click the <strong>Set Gain</strong> button next to sensor 1</li>
+    <li>The row turns green when gain is set</li>
+    <li>Repeat for each sensor (1 through 12)</li>
+  </ol>
+</div>
+
+<div class="step-box">
+  <h4>Step 3: Save Calibration</h4>
+  <p>Click <strong>Save Calibration</strong> to store the calibration data.</p>
+</div>
+
+<h3>Calibration File Format</h3>
+<p>The calibration file is a CSV with the following columns:</p>
+<table>
+  <tbody><tr><th>Column</th><th>Description</th></tr>
+  <tr><td><code>LoadCell</code></td><td>Sensor index (0–11)</td></tr>
+  <tr><td><code>Offset</code></td><td>Zero offset value</td></tr>
+  <tr><td><code>Gain</code></td><td>Gain multiplier</td></tr>
+  <tr><td><code>CalibratedAt</code></td><td>Timestamp of calibration</td></tr>
+</tbody></table>
+<p>File naming convention: <code>caldata_&lt;SERIAL&gt;.csv</code><br>
+Example: <code>caldata_SN12345.csv</code></p>
+
+<h3>Importing a Calibration File</h3>
+<p>You can import an existing calibration file in the <strong>Settings</strong> page:</p>
+<ol>
+  <li>Go to <strong>Settings</strong></li>
+  <li>In the <strong>Import Calibration</strong> section, click <strong>Browse</strong> and select a <code>.csv</code> file</li>
+  <li>Click <strong>Import</strong></li>
+  <li>If the file’s serial number doesn’t match the system, you will be prompted to confirm</li>
+  <li>If a calibration file already exists, a backup is automatically created (with <code>_1</code>, <code>_2</code>, etc.)</li>
+</ol>
+
+<!-- 8. SETTINGS -->
+<h1 id="settings"><span class="section-num">8.</span> Settings</h1>
+
+<h3>Data Directory</h3>
+<p>The folder where measurements and calibration data are stored.</p>
+<p>Default: <code>C:\Users\&lt;username&gt;\AppData\Roaming\C-Measure\data</code></p>
+
+<h3>Plot Max (X axis)</h3>
+<p>Sets the maximum value for the X-axis on plots (in daN).</p>
+<ul>
+  <li>Leave empty for auto-scaling</li>
+  <li>Set a fixed value (e.g., 20) for consistent plot scaling</li>
+</ul>
+
+<h3>Simulation Mode</h3>
+<p>Toggle simulation mode ON/OFF.</p>
+<ul>
+  <li>When ON, the backend generates simulated sensor values (no hardware required)</li>
+  <li>Useful for testing and demonstration purposes</li>
+</ul>
+<div class="warning-box">
+  <strong>Note:</strong> Simulation mode changes require an <strong>application restart</strong> to take effect.
+</div>
+
+<h3>Import Calibration</h3>
+<p>Import a calibration CSV file from another system or backup. See <a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#calibration">Section 7</a> for details.</p>
+
+<h3>System Info</h3>
+<p>Displays:</p>
+<ul>
+  <li><strong>Version</strong> — Application version</li>
+  <li><strong>Backend</strong> — Live or Simulation mode</li>
+  <li><strong>Data folder</strong> — Current data directory path</li>
+</ul>
+
+<!-- 9. MOVING -->
+<h1 id="moving" class="page-break"><span class="section-num">9.</span> Moving the System to Another PC</h1>
+<p>When transferring C-Measure to a new computer, follow these steps:</p>
+
+<h3>What You Need</h3>
+<ol>
+  <li>The <strong>C-Measure installer</strong> (.exe)</li>
+  <li>The <strong>calibration file</strong> for your system</li>
+</ol>
+
+<div class="step-box">
+  <h4>Step 1: Export the Calibration File</h4>
+  <p>On the <strong>old PC</strong>, locate and copy the calibration file:</p>
+  <ol>
+    <li>Open C-Measure and go to <strong>Settings</strong></li>
+    <li>Note the <strong>Data folder</strong> path shown in the System section</li>
+    <li>Navigate to that folder (e.g., <code>C:\Users\&lt;user&gt;\AppData\Roaming\C-Measure\data</code>)</li>
+    <li>Copy the file named <code>caldata_&lt;SERIAL&gt;.csv</code></li>
+    <li>Save it to a USB drive or network location</li>
+  </ol>
+</div>
+
+<div class="warning-box">
+  <strong>Important:</strong> Without the calibration file, all measurements will be uncalibrated (raw sensor values). <strong>Always keep a backup of your calibration file!</strong>
+</div>
+
+<div class="step-box">
+  <h4>Step 2: Install on the New PC</h4>
+  <ol>
+    <li>Run the C-Measure installer on the new PC</li>
+    <li>Install the Phidget22 drivers when prompted</li>
+    <li>Ensure Visual C++ Redistributable is installed</li>
+  </ol>
+</div>
+
+<div class="step-box">
+  <h4>Step 3: Import the Calibration File</h4>
+  <ol>
+    <li>Launch C-Measure on the new PC</li>
+    <li>Go to <strong>Settings</strong></li>
+    <li>Use <strong>Import Calibration</strong> to browse and select your <code>caldata_&lt;SERIAL&gt;.csv</code> file</li>
+    <li>Click <strong>Import</strong></li>
+    <li>Verify that the calibration warning disappears from the Home page</li>
+    <li>Go to the Home page and confirm that “Last calibration” shows the correct date</li>
+  </ol>
+</div>
+
+<h3>Verifying the Transfer</h3>
+<ol>
+  <li>Connect the sensor hub</li>
+  <li>Go to <strong>Measurements</strong> and check that all sensors show “Connected”</li>
+  <li>Verify that sensor values look correct (compare with known reference if available)</li>
+</ol>
+
+<!-- 10. TROUBLESHOOTING -->
+<h1 id="troubleshooting" class="page-break"><span class="section-num">10.</span> Troubleshooting</h1>
+
+<h3>Backend Error on Startup</h3>
+<p><strong>Symptom:</strong> “Could not start the backend server” with error code 4294967295</p>
+<p><strong>Solution:</strong> Install Microsoft Visual C++ Redistributable 2015–2022.<br>
+Download: <a href="https://aka.ms/vs/17/release/vc_redist.x86.exe">https://aka.ms/vs/17/release/vc_redist.x86.exe</a></p>
+<hr>
+
+<h3>Hub Offline / Cannot Connect</h3>
+<p><strong>Symptom:</strong> Status shows “C-Measure: offline”</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+  <li>Verify the Phidget hub is powered on</li>
+  <li>Check WiFi/network connection to the hub</li>
+  <li>Try the <strong>Connect WiFi</strong> option on the Home page</li>
+  <li>Ensure Phidget22 drivers are installed</li>
+</ul>
+<hr>
+
+<h3>Sensors Show Yellow (Disconnected)</h3>
+<p><strong>Symptom:</strong> Some sensors show yellow dots with 0 daN value</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+  <li>Check physical connections to the sensors</li>
+  <li>Verify the sensor cables are properly seated</li>
+  <li>Restart the application</li>
+</ul>
+<hr>
+
+<h3>Calibration Warning</h3>
+<p><strong>Symptom:</strong> “Calibration missing” warning on Home page</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+  <li>Import a calibration file via Settings &gt; Import Calibration</li>
+  <li>Or perform a new calibration (see <a href="file:///C:/workspace/project/sefco/SW/sefco/C-Measure/C-Measure_User_Manual.html#calibration">Section 7</a>)</li>
+</ul>
+<hr>
+
+<h3>404 Error in Browser</h3>
+<p><strong>Symptom:</strong> Accessing 127.0.0.1:8123 shows “Error 404”</p>
+<p><strong>Explanation:</strong> The backend server is designed to be accessed through the C-Measure application, not directly via a browser. Always launch C-Measure from the Start Menu or shortcut.</p>
+<hr>
+
+<h3>Measurements Not Saving</h3>
+<p><strong>Symptom:</strong> Stored measurements are not appearing in Reports</p>
+<p><strong>Solutions:</strong></p>
+<ul>
+  <li>Check the Data directory in Settings</li>
+  <li>Ensure the data folder exists and is writable</li>
+  <li>Try restarting the application</li>
+</ul>
+
+<div class="footer-bar">
+  C-Measure v1.0.0 — SEFCO Stretch Film Measure System — 2026<br>
+  Developed by Frihauge IT — Esben Frihauge — 02/2026
+</div>
+
+</div>
+
+
+</body></html>

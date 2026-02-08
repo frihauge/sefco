@@ -221,6 +221,25 @@ class ApiHandler(BaseHTTPRequestHandler):
                 "calibration": self.server.service.calibration,
                 "serial": settings.get("systemSerial"),
             })
+        if route == "/api/calibration/export":
+            settings = load_settings()
+            serial = settings.get("systemSerial")
+            paths = []
+            if serial:
+                paths.append(Path(self.server.storage._calibration_path(serial)))
+            paths.append(Path(self.server.storage._calibration_path()))
+            calibration_path = next((p for p in paths if p.exists() and p.is_file()), None)
+            if calibration_path is None:
+                return self._send_json({"error": "No calibration file found"}, status=404)
+            try:
+                content = calibration_path.read_bytes()
+            except OSError as err:
+                return self._send_json({"error": f"Failed to read calibration file: {err}"}, status=500)
+            return self._send_bytes(
+                content,
+                content_type="text/csv; charset=utf-8",
+                filename=calibration_path.name,
+            )
         if route == "/api/tests":
             return self._send_json({"files": self.server.storage.list_measurements()})
         if route == "/api/settings":
@@ -494,6 +513,18 @@ class ApiHandler(BaseHTTPRequestHandler):
             return json.loads(data.decode("utf-8"))
         except json.JSONDecodeError:
             return {}
+
+    def _send_bytes(self, payload, content_type="application/octet-stream", status=200, filename=None):
+        data = payload if isinstance(payload, (bytes, bytearray)) else bytes(payload)
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        if filename:
+            safe_filename = str(filename).replace('"', "")
+            self.send_header("Content-Disposition", f'attachment; filename="{safe_filename}"')
+        self.end_headers()
+        self.wfile.write(data)
 
     def _send_json(self, payload, status=200):
         data = json.dumps(payload).encode("utf-8")

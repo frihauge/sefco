@@ -83,6 +83,13 @@ function resolveBackendCommand() {
     }
   }
 
+  const python = process.env.CMEASURE_PYTHON || 'python';
+  const script = path.join(__dirname, 'backend', 'server.py');
+  if (!app.isPackaged && fsSync.existsSync(script)) {
+    console.log('[main] Development mode: using Python backend script');
+    return { command: python, args: [script] };
+  }
+
   const localExe = path.join(__dirname, 'backend', exeName);
   searchPaths.push(localExe);
   console.log('[main] Checking local path:', localExe, '- exists:', fsSync.existsSync(localExe));
@@ -90,8 +97,6 @@ function resolveBackendCommand() {
     return { command: localExe, args: [] };
   }
 
-  const python = process.env.CMEASURE_PYTHON || 'python';
-  const script = path.join(__dirname, 'backend', 'server.py');
   console.log('[main] Falling back to Python:', python, script);
 
   // Store searched paths for error message
@@ -291,11 +296,38 @@ ipcMain.handle('open-report-file', async (event, defaultPath) => {
   return filePaths[0];
 });
 
+ipcMain.handle('open-calibration-file', async (event, defaultPath) => {
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Select calibration file',
+    defaultPath: defaultPath || app.getPath('documents'),
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths || filePaths.length === 0) {
+    return null;
+  }
+  return filePaths[0];
+});
+
 ipcMain.handle('read-file', async (event, filePath) => {
   if (!filePath) {
     return '';
   }
   return fs.readFile(filePath, 'utf-8');
+});
+
+ipcMain.handle('save-calibration-file', async (event, defaultPath, content) => {
+  const fallbackPath = path.join(app.getPath('documents'), 'caldata.csv');
+  const { canceled, filePath } = await dialog.showSaveDialog({
+    title: 'Export calibration file',
+    defaultPath: defaultPath || fallbackPath,
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (canceled || !filePath) {
+    return { canceled: true };
+  }
+  await fs.writeFile(filePath, typeof content === 'string' ? content : String(content || ''), 'utf-8');
+  return { canceled: false, filePath };
 });
 
 app.on('window-all-closed', () => {

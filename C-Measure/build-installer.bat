@@ -35,21 +35,6 @@ echo [build] WARNING: No Phidget driver found in drivers\ folder!
 echo [build] Building installer...
 call npm run build:installer
 
-echo [build] Creating password-protected zip...
-set "ZIP_OUT=dist\C-Measure-release.zip"
-set "ZIP_PASS=cmeas_022026"
-set "ZIP_TOOL=%ProgramFiles%\7-Zip\7z.exe"
-if not exist "%ZIP_TOOL%" (
-    echo [build] WARNING: 7-Zip not found at "%ZIP_TOOL%". Skipping zip.
-    goto :zip_done
-)
-if exist "%ZIP_OUT%" del /f /q "%ZIP_OUT%"
-"%ZIP_TOOL%" a -tzip -mem=AES256 -p%ZIP_PASS% "%ZIP_OUT%" "dist\*.exe" >nul
-if errorlevel 1 (
-    echo [build] WARNING: Failed to create zip archive.
-) else (
-    echo [build] Created "%ZIP_OUT%"
-)
-:zip_done
+echo [build] Zip step disabled.
 
 endlocal

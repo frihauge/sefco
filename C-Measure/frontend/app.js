@@ -38,6 +38,7 @@ const state = {
   reportLocalBContent: null,
   reportLocalAName: '',
   reportLocalBName: '',
+  startupCalibrationPromptShown: false,
 };
 
 const elements = {
@@ -102,6 +103,7 @@ const elements = {
   measurementStatusDots: document.getElementById('measurement-status-dots'),
   calibrationTableBody: document.getElementById('calibration-table-body'),
   saveCalibrationBtn: document.getElementById('save-calibration-btn'),
+  exportCalibrationBtn: document.getElementById('export-calibration-btn'),
   calZeroBtn: document.getElementById('cal-zero-btn'),
   calGainWeight: document.getElementById('cal-gain-weight'),
   settingsDataDir: document.getElementById('settings-data-dir'),
@@ -1240,21 +1242,66 @@ async function saveCalibration() {
   }
 }
 
-async function importCalibration(force = false, cachedContent = null, cachedName = '') {
-  if (!elements.settingsCalibrationFile) {
+function getFilenameFromContentDisposition(contentDisposition) {
+  if (!contentDisposition) {
+    return null;
+  }
+  const match = contentDisposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  if (!match) {
+    return null;
+  }
+  const raw = match[1] || match[2];
+  if (!raw) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+}
+
+async function exportCalibrationFile() {
+  const response = await fetch('/api/calibration/export', { cache: 'no-store' });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    showToast(data?.error || 'Failed to export calibration');
     return;
   }
-  const file = elements.settingsCalibrationFile.files && elements.settingsCalibrationFile.files[0];
-  if (!file) {
-    showToast('Select a calibration file');
+  const disposition = response.headers.get('content-disposition') || '';
+  const filename = getFilenameFromContentDisposition(disposition) || 'caldata.csv';
+  const content = await response.text();
+  if (window.cmeasure && window.cmeasure.saveCalibrationFile) {
+    await ensureDataDir();
+    const baseDir = state.dataDir || (elements.homeDataDir ? elements.homeDataDir.textContent : '');
+    let defaultPath;
+    if (baseDir) {
+      const trimmed = baseDir.replace(/[\\/]+$/, '');
+      const separator = trimmed.includes('\\') ? '\\' : '/';
+      defaultPath = `${trimmed}${separator}${filename}`;
+    }
+    const result = await safeRequest(
+      () => window.cmeasure.saveCalibrationFile(defaultPath, content),
+      'Failed to export calibration',
+    );
+    if (result && !result.canceled) {
+      showToast('Calibration exported');
+    }
     return;
   }
-  const content = cachedContent || await readFile(elements.settingsCalibrationFile);
-  const filename = cachedName || file.name || '';
-  if (!content) {
-    showToast('Failed to read calibration file');
-    return;
-  }
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+  showToast('Calibration exported');
+}
+
+async function submitCalibrationImport(content, filename, force = false) {
   const response = await fetch('/api/calibration/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1272,18 +1319,18 @@ async function importCalibration(force = false, cachedContent = null, cachedName
     }
     const confirmed = window.confirm(message);
     if (confirmed) {
-      await importCalibration(true, content, filename);
+      return submitCalibrationImport(content, filename, true);
     } else {
       showToast('Import canceled');
     }
-    return;
+    return false;
   }
 
   if (!response.ok) {
     const data = await response.json().catch(() => null);
     const message = data?.error || 'Failed to import calibration';
     showToast(message);
-    return;
+    return false;
   }
 
   await response.json().catch(() => null);
@@ -1291,6 +1338,69 @@ async function importCalibration(force = false, cachedContent = null, cachedName
   await refreshCalibration();
   await refreshSystemData();
   await refreshStatus({ silent: true });
+  return true;
+}
+
+async function importCalibration(force = false, cachedContent = null, cachedName = '') {
+  if (!elements.settingsCalibrationFile) {
+    return false;
+  }
+  const file = elements.settingsCalibrationFile.files && elements.settingsCalibrationFile.files[0];
+  if (!file) {
+    showToast('Select a calibration file');
+    return false;
+  }
+  const content = cachedContent || await readFile(elements.settingsCalibrationFile);
+  const filename = cachedName || file.name || '';
+  if (!content) {
+    showToast('Failed to read calibration file');
+    return false;
+  }
+  return submitCalibrationImport(content, filename, force);
+}
+
+async function importCalibrationFromDialog() {
+  if (!window.cmeasure || !window.cmeasure.openCalibrationFile || !window.cmeasure.readFile) {
+    return false;
+  }
+  await ensureDataDir();
+  const defaultPath = state.dataDir || undefined;
+  const filePath = await safeRequest(
+    () => window.cmeasure.openCalibrationFile(defaultPath),
+    'Failed to open calibration file picker',
+  );
+  if (!filePath) {
+    return false;
+  }
+  const content = await safeRequest(
+    () => window.cmeasure.readFile(filePath),
+    'Failed to read calibration file',
+  );
+  if (!content) {
+    showToast('Failed to read calibration file');
+    return false;
+  }
+  return submitCalibrationImport(content, getBaseName(filePath), false);
+}
+
+async function maybePromptCalibrationImportOnStartup() {
+  if (state.startupCalibrationPromptShown) {
+    return;
+  }
+  state.startupCalibrationPromptShown = true;
+  if (!state.calibrationMissing) {
+    return;
+  }
+  if (!window.cmeasure || !window.cmeasure.openCalibrationFile || !window.cmeasure.readFile) {
+    return;
+  }
+  const confirmed = window.confirm(
+    'Calibration file is missing. Do you want to select and import a calibration file now?',
+  );
+  if (!confirmed) {
+    return;
+  }
+  await importCalibrationFromDialog();
 }
 
 async function saveSettings() {
@@ -1709,6 +1819,9 @@ function wireEvents() {
   });
   elements.pdfBtn.addEventListener('click', generatePdf);
   elements.saveCalibrationBtn.addEventListener('click', saveCalibration);
+  if (elements.exportCalibrationBtn) {
+    elements.exportCalibrationBtn.addEventListener('click', exportCalibrationFile);
+  }
   elements.saveSettingsBtn.addEventListener('click', saveSettings);
   if (elements.settingsSimulate) {
     elements.settingsSimulate.addEventListener('change', updateSimulateToggleLabel);
@@ -1745,6 +1858,7 @@ async function init() {
   await refreshCalibration();
   await refreshSettings();
   await refreshSystemData();
+  await maybePromptCalibrationImportOnStartup();
   await refreshReportsList();
 }
 

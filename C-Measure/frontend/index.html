@@ -334,6 +334,15 @@
                 </label>
                 <span id="settings-simulate-label" class="toggle-label">Off</span>
               </div>
+              <label>
+                <span class="field-label">Import calibration (CSV)</span>
+                <input class="field-input is-hidden" type="file" id="settings-calibration-file" accept=".csv" />
+                <div class="file-picker" id="settings-calibration-picker">
+                  <input class="field-input" id="settings-calibration-name" placeholder="No file selected" readonly />
+                  <button class="btn ghost compact" id="settings-calibration-browse">Choose file</button>
+                </div>
+              </label>
+              <button class="btn ghost" id="settings-calibration-import">Import Calibration</button>
               <button class="btn" id="save-settings-btn">Save Settings</button>
             </div>
           </div>

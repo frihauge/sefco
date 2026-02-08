@@ -108,6 +108,11 @@ const elements = {
   settingsPlotMax: document.getElementById('settings-plot-max'),
   settingsSimulate: document.getElementById('settings-simulate'),
   settingsSimulateLabel: document.getElementById('settings-simulate-label'),
+  settingsCalibrationFile: document.getElementById('settings-calibration-file'),
+  settingsCalibrationPicker: document.getElementById('settings-calibration-picker'),
+  settingsCalibrationName: document.getElementById('settings-calibration-name'),
+  settingsCalibrationBrowse: document.getElementById('settings-calibration-browse'),
+  settingsCalibrationImport: document.getElementById('settings-calibration-import'),
   saveSettingsBtn: document.getElementById('save-settings-btn'),
   systemInfo: document.getElementById('system-info'),
   toast: document.getElementById('toast'),
@@ -1235,6 +1240,59 @@ async function saveCalibration() {
   }
 }
 
+async function importCalibration(force = false, cachedContent = null, cachedName = '') {
+  if (!elements.settingsCalibrationFile) {
+    return;
+  }
+  const file = elements.settingsCalibrationFile.files && elements.settingsCalibrationFile.files[0];
+  if (!file) {
+    showToast('Select a calibration file');
+    return;
+  }
+  const content = cachedContent || await readFile(elements.settingsCalibrationFile);
+  const filename = cachedName || file.name || '';
+  if (!content) {
+    showToast('Failed to read calibration file');
+    return;
+  }
+  const response = await fetch('/api/calibration/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, filename, force }),
+  });
+
+  if (response.status === 409) {
+    const data = await response.json().catch(() => null);
+    const reason = data?.reason || 'overwrite';
+    let message = 'A calibration file already exists. Do you want to overwrite it? A backup will be saved with _1, _2, ...';
+    if (reason === 'serial') {
+      const fileSerial = data?.fileSerial || '-';
+      const systemSerial = data?.systemSerial || '-';
+      message = `The file serial (${fileSerial}) does not match the device (${systemSerial}). Do you want to overwrite the calibration?`;
+    }
+    const confirmed = window.confirm(message);
+    if (confirmed) {
+      await importCalibration(true, content, filename);
+    } else {
+      showToast('Import canceled');
+    }
+    return;
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    const message = data?.error || 'Failed to import calibration';
+    showToast(message);
+    return;
+  }
+
+  await response.json().catch(() => null);
+  showToast('Calibration imported');
+  await refreshCalibration();
+  await refreshSystemData();
+  await refreshStatus({ silent: true });
+}
+
 async function saveSettings() {
   const maxInput = elements.settingsPlotMax ? elements.settingsPlotMax.value.trim() : '';
   const maxValue = parseFloat(maxInput);
@@ -1599,6 +1657,29 @@ function wireEvents() {
     });
   }
 
+  if (elements.settingsCalibrationBrowse) {
+    elements.settingsCalibrationBrowse.addEventListener('click', () => {
+      if (elements.settingsCalibrationFile) {
+        elements.settingsCalibrationFile.click();
+      }
+    });
+  }
+
+  if (elements.settingsCalibrationFile) {
+    elements.settingsCalibrationFile.addEventListener('change', () => {
+      const file = elements.settingsCalibrationFile.files && elements.settingsCalibrationFile.files[0];
+      if (elements.settingsCalibrationName) {
+        elements.settingsCalibrationName.value = file ? file.name : '';
+      }
+    });
+  }
+
+  if (elements.settingsCalibrationImport) {
+    elements.settingsCalibrationImport.addEventListener('click', () => {
+      importCalibration();
+    });
+  }
+
   if (elements.measureToggleInput) {
     elements.measureToggleInput.addEventListener('change', toggleContinuous);
   }
@@ -1650,6 +1731,12 @@ async function init() {
   }
   if (elements.reportFileBPicker) {
     elements.reportFileBPicker.classList.remove('is-hidden');
+  }
+  if (elements.settingsCalibrationFile) {
+    elements.settingsCalibrationFile.classList.add('is-hidden');
+  }
+  if (elements.settingsCalibrationPicker) {
+    elements.settingsCalibrationPicker.classList.remove('is-hidden');
   }
   await refreshStatus();
   startStatusPolling();

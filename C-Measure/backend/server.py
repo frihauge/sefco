@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import logging
 import mimetypes
@@ -13,6 +15,140 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from xml.sax.saxutils import escape as xml_escape
+
+
+def _extract_serial_from_filename(filename):
+    if not filename:
+        return None
+    base = os.path.basename(str(filename))
+    match = re.search(r"caldata[_-]?([A-Za-z0-9]+)\.csv$", base, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _normalize_csv_lines(content):
+    if not content:
+        return []
+    return [line for line in str(content).splitlines() if line.strip()]
+
+
+def _find_calibration_header_index(lines):
+    if not lines:
+        return None
+    for idx, line in enumerate(lines):
+        lower = line.lower()
+        if "loadcell" in lower:
+            return idx
+        if "multiplier" in lower or "addend" in lower:
+            return idx
+    return 0
+
+
+def _extract_serial_from_csv(content):
+    if not content:
+        return None
+    lines = _normalize_csv_lines(content)
+    if not lines:
+        return None
+    for line in lines[:8]:
+        match = re.search(
+            r"(?i)\b(serial|systemserial|device\s*serial|serialnumber)\b\s*[:=]\s*([A-Za-z0-9_-]+)",
+            line,
+        )
+        if match:
+            return match.group(2).strip()
+        try:
+            row = next(csv.reader([line]))
+        except Exception:
+            row = None
+        if row and len(row) >= 2:
+            key = str(row[0]).strip().lower().replace(" ", "")
+            if key in ("serial", "systemserial", "serialnumber", "deviceserial"):
+                return str(row[1]).strip()
+    header_index = _find_calibration_header_index(lines)
+    if header_index is None:
+        return None
+    data = "\n".join(lines[header_index:])
+    try:
+        reader = csv.DictReader(io.StringIO(data))
+    except Exception:
+        return None
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            if key and "serial" in str(key).lower() and value:
+                return str(value).strip()
+        break
+    return None
+
+
+def _parse_calibration_csv(content, count):
+    rows = [{"LoadCell": str(i), "Offset": "0", "Gain": "1"} for i in range(count)]
+    if not content:
+        return None
+    lines = _normalize_csv_lines(content)
+    if not lines:
+        return None
+    header_index = _find_calibration_header_index(lines)
+    if header_index is None:
+        return None
+    data = "\n".join(lines[header_index:])
+    try:
+        reader = csv.DictReader(io.StringIO(data))
+    except Exception:
+        return None
+    parsed_any = False
+    for row in reader:
+        if not isinstance(row, dict):
+            continue
+        try:
+            idx = int(row.get("LoadCell", -1))
+        except (TypeError, ValueError):
+            continue
+        if idx < 0 or idx >= count:
+            continue
+        offset = row.get("Offset")
+        gain = row.get("Gain")
+        if offset is None and gain is None:
+            mult = row.get("Multiplier", "1")
+            add = row.get("Addend", "0")
+            try:
+                mult_val = float(mult)
+            except (TypeError, ValueError):
+                mult_val = 1.0
+            try:
+                add_val = float(add)
+            except (TypeError, ValueError):
+                add_val = 0.0
+            if mult_val == 0:
+                offset_val = 0.0
+            else:
+                offset_val = -add_val / mult_val
+            offset = str(offset_val)
+            gain = str(mult_val)
+        rows[idx] = {
+            "LoadCell": str(idx),
+            "Offset": str(offset if offset is not None else 0),
+            "Gain": str(gain if gain is not None else 1),
+        }
+        parsed_any = True
+    if not parsed_any:
+        return None
+    return rows
+
+
+def _next_backup_path(path):
+    base = Path(path)
+    suffix = base.suffix
+    stem = base.stem if suffix else base.name
+    counter = 1
+    while True:
+        candidate = base.with_name(f"{stem}_{counter}{suffix}")
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 from phidget_service import PhidgetService
 from settings import load_settings, save_settings, get_data_dir
@@ -128,6 +264,52 @@ class ApiHandler(BaseHTTPRequestHandler):
             name = payload.get("name") if isinstance(payload, dict) else None
             filename = self.server.service.record_measurement(name=name)
             return self._send_json({"file": filename})
+        if route == "/api/calibration/import":
+            payload = self._read_json()
+            if not isinstance(payload, dict):
+                return self._send_json({"error": "Invalid payload"}, status=400)
+            content = payload.get("content")
+            filename = payload.get("filename") or ""
+            force = bool(payload.get("force"))
+            if not content:
+                return self._send_json({"error": "Calibration content is required"}, status=400)
+            content = str(content).lstrip("\ufeff")
+            file_serial = _extract_serial_from_filename(filename) or _extract_serial_from_csv(content)
+            settings = load_settings()
+            system_serial = settings.get("systemSerial")
+            file_serial_norm = str(file_serial).strip() if file_serial else ""
+            system_serial_norm = str(system_serial).strip() if system_serial else ""
+            if file_serial_norm and system_serial_norm and file_serial_norm.upper() != system_serial_norm.upper() and not force:
+                return self._send_json({
+                    "error": "Serial mismatch",
+                    "fileSerial": file_serial,
+                    "systemSerial": system_serial,
+                    "requiresConfirm": True,
+                    "reason": "serial",
+                }, status=409)
+            rows = _parse_calibration_csv(content, self.server.service.num_ids)
+            if rows is None:
+                return self._send_json({"error": "Invalid calibration file"}, status=400)
+            dest_path = Path(self.server.storage._calibration_path(system_serial))
+            if dest_path.exists() and not force:
+                return self._send_json({
+                    "error": "Calibration exists",
+                    "requiresConfirm": True,
+                    "reason": "overwrite",
+                }, status=409)
+            if dest_path.exists():
+                try:
+                    backup_path = _next_backup_path(dest_path)
+                    dest_path.replace(backup_path)
+                except OSError as err:
+                    return self._send_json({"error": f"Failed to backup calibration: {err}"}, status=500)
+            self.server.service.update_calibration(rows, serial=system_serial)
+            self.server.update_pairing(calibrated_at=self.server.storage.calibration_timestamp)
+            return self._send_json({
+                "calibration": self.server.service.calibration,
+                "fileSerial": file_serial,
+                "systemSerial": system_serial,
+            })
         if route == "/api/reports/compare":
             payload = self._read_json()
             file_a = payload.get("fileA")
@@ -506,6 +688,11 @@ def main():
 
     port = int(os.getenv("CMEASURE_PORT", "8123"))
     ui_dir = os.getenv("CMEASURE_UI_DIR") or str(Path(__file__).resolve().parent.parent / "frontend")
+
+    print(f"UI directory: {ui_dir}")
+    print(f"UI directory exists: {Path(ui_dir).exists()}")
+    index_path = Path(ui_dir) / "index.html"
+    print(f"index.html exists: {index_path.exists()}")
 
     server = CMeasureServer(("127.0.0.1", port), ApiHandler, storage, service, ui_dir)
     server.system_info = system_info

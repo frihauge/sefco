@@ -1,5 +1,5 @@
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const http = require('http');
@@ -11,6 +11,50 @@ const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}/`;
 let backendProcess;
 let backendError = null;
 let backendStarted = false;
+
+function execCommand(command) {
+  return new Promise((resolve, reject) => {
+    exec(command, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        reject(Object.assign(error, { stdout, stderr }));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function killProcessesOnPort(port) {
+  if (process.platform !== 'win32') {
+    return;
+  }
+  const pids = new Set();
+  try {
+    const { stdout } = await execCommand('netstat -ano -p tcp');
+    stdout.split(/\r?\n/).forEach((line) => {
+      if (!line.includes(`:${port}`) || !line.includes('LISTENING')) {
+        return;
+      }
+      const parts = line.trim().split(/\s+/);
+      const pid = parts[parts.length - 1];
+      if (pid && pid !== '0') {
+        pids.add(pid);
+      }
+    });
+  } catch (err) {
+    console.warn('[main] Failed to inspect ports:', err.message);
+    return;
+  }
+
+  for (const pid of pids) {
+    try {
+      console.log(`[main] Killing process ${pid} on port ${port}...`);
+      await execCommand(`taskkill /PID ${pid} /T /F`);
+    } catch (err) {
+      console.warn(`[main] Failed to kill PID ${pid}:`, err.message);
+    }
+  }
+}
 
 function resolveBackendCommand() {
   const exeName = process.platform === 'win32' ? 'server.exe' : 'server';
@@ -196,8 +240,9 @@ async function createWindow() {
   }, 8000);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  await killProcessesOnPort(BACKEND_PORT);
   startBackend();
   createWindow();
 

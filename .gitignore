@@ -51,3 +51,5 @@ test-*.js
 debug-*.js
 */test-*.js
 */debug-*.js
+/C-Measure/backend/*.exe
+/C-Measure/backend/__pycache__/*.pyc

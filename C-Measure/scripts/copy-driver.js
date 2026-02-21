@@ -41,7 +41,7 @@ fallbackDirs.forEach((dir) => {
   });
 });
 
-const driverPattern = /(driver|installer|setup)/i;
+const driverPattern = /(driver|installer|setup|phidget)/i;
 const allowedExt = new Set(['.exe', '.msi']);
 const driverFile = candidates.find((file) => {
   const ext = path.extname(file).toLowerCase();

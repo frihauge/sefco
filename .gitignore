@@ -53,3 +53,9 @@ debug-*.js
 */debug-*.js
 /C-Measure/backend/*.exe
 /C-Measure/backend/__pycache__/*.pyc
+/C-Measure/sign/*.exe
+/C-Measure/sign/*.zip
+/Signing/CodeSignTool/signed/C-Measure.exe
+/Signing/CodeSignTool/signed/C-Measure Setup 1.0.1.exe
+/Signing/CodeSignTool/signed/C-Measure 1.0.1.exe
+/Signing/CodeSignTool/jdk-11.0.2/lib/modules

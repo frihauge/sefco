@@ -59,3 +59,4 @@ debug-*.js
 /Signing/CodeSignTool/signed/C-Measure Setup 1.0.1.exe
 /Signing/CodeSignTool/signed/C-Measure 1.0.1.exe
 /Signing/CodeSignTool/jdk-11.0.2/lib/modules
+/Signing
